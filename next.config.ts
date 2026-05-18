@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ['lucide-react'],
   },
   outputFileTracingIncludes: {
-    '/**': ['./prisma/sportsurge.db'],
+    '/**': ['./prisma/dev.db'],
   },
   serverExternalPackages: ['@prisma/client', 'prisma'],
   typescript: {
