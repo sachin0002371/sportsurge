@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 export async function POST() {
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+
   try {
-    console.log('🚀 [Step 1/4] Calling Python backend to fetch ESPN data...');
-    const fetchRes = await fetch('http://localhost:8000/api/v1/fetch-data', { 
+    console.log(`🚀 [Step 1/4] Calling Python backend (${backendUrl}) to fetch ESPN data...`);
+    const fetchRes = await fetch(`${backendUrl}/api/v1/fetch-data`, { 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(300000), // 5 minutes timeout
@@ -25,7 +27,7 @@ export async function POST() {
     // [Step 2/3] Trigger Match Summaries generation
     console.log('🚀 [Step 2/3] Triggering AI Match Summaries for finished matches...');
     try {
-      const summaryRes = await fetch('http://localhost:8000/api/v1/generate-summaries', {
+      const summaryRes = await fetch(`${backendUrl}/api/v1/generate-summaries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(300000),
@@ -42,7 +44,7 @@ export async function POST() {
     // [Step 3/3] Trigger YouTube video updates
     console.log('🚀 [Step 3/3] Triggering YouTube video updates for recent matches...');
     try {
-      const youtubeRes = await fetch('http://localhost:8000/api/v1/batch-youtube?limit=5', {
+      const youtubeRes = await fetch(`${backendUrl}/api/v1/batch-youtube?limit=5`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(300000),
@@ -76,7 +78,7 @@ export async function POST() {
     return NextResponse.json(
       { 
         success: false, 
-        error: `Failed to connect to Python backend (http://localhost:8000): ${error.message}` 
+        error: `Failed to connect to Python backend (${backendUrl}): ${error.message}` 
       },
       { status: 500 }
     );

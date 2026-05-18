@@ -18,7 +18,9 @@ export async function POST(request: NextRequest) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 300000); // 300s timeout for 5-layer pipeline
 
-      const res = await fetch('http://localhost:8000/api/v1/generate-article-v3', {
+      const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+
+      const res = await fetch(`${backendUrl}/api/v1/generate-article-v3`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
       console.error('❌ Failed to call Python backend 5-layer pipeline:', backendErr);
       const errMsg = backendErr.name === 'AbortError' 
         ? '5-layer Gemini AI pipeline took longer than 5 minutes to complete. Please check the Python backend console for Gemini API status.'
-        : `Failed to connect to Python backend (http://localhost:8000): ${backendErr.message}`;
+        : `Failed to connect to Python backend (${process.env.BACKEND_URL || 'http://localhost:8000'}): ${backendErr.message}`;
       return NextResponse.json(
         { success: false, error: errMsg }, 
         { status: 500 }
