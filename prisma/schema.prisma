@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Sport {
+  id        String     @id @default(cuid())
+  slug      String     @unique
+  name      String
+  icon      String
+  color     String
+  isActive  Boolean    @default(true) @map("is_active")
+  sortOrder Int        @default(0) @map("sort_order")
+  teams     Team[]
+  matches   Match[]
+  articles  Article[]
+  standings Standing[]
+
+  @@map("sports")
+}
+
+model Team {
+  id           String     @id @default(cuid())
+  sportId      String     @map("sport_id")
+  sport        Sport      @relation(fields: [sportId], references: [id])
+  externalId   String?    @map("external_id")
+  name         String
+  abbreviation String
+  slug         String
+  city         String?
+  logo         String?
+  color        String?
+  homeMatches  Match[]    @relation("HomeTeam")
+  awayMatches  Match[]    @relation("AwayTeam")
+  standings    Standing[]
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@unique([sportId, slug])
+  @@map("teams")
+}
+
+model Match {
+  id              String     @id @default(cuid())
+  sportId         String     @map("sport_id")
+  sport           Sport      @relation(fields: [sportId], references: [id])
+  externalId      String?    @map("external_id")
+  slug            String
+  homeTeamId      String     @map("home_team_id")
+  homeTeam        Team       @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeamId      String     @map("away_team_id")
+  awayTeam        Team       @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  homeScore       Int?       @map("home_score")
+  awayScore       Int?       @map("away_score")
+  status          String     @default("upcoming")
+  matchDate       DateTime   @map("match_date")
+  venue           String?
+  broadcastInfo   String?    @map("broadcast_info")
+  matchSummary    String?    @map("match_summary")
+  homeVotes       Int        @default(0) @map("home_votes")
+  awayVotes       Int        @default(0) @map("away_votes")
+  youtubeVideoIds String?    @map("youtube_video_ids")
+  seoContent      String?    @map("seo_content")
+  votes           Vote[]
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  @@unique([sportId, slug])
+  @@map("matches")
+}
+
+model Standing {
+  id         String   @id @default(cuid())
+  sportId    String   @map("sport_id")
+  sport      Sport    @relation(fields: [sportId], references: [id])
+  teamId     String   @map("team_id")
+  team       Team     @relation(fields: [teamId], references: [id])
+  wins       Int      @default(0)
+  losses     Int      @default(0)
+  draws      Int      @default(0)
+  position   Int      @default(0)
+  percentage Float?
+  streak     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("standings")
+}
+
+model Article {
+  id              String    @id @default(cuid())
+  sportId         String?   @map("sport_id")
+  sport           Sport?    @relation(fields: [sportId], references: [id])
+  authorId        String    @map("author_id")
+  author          Author    @relation(fields: [authorId], references: [id])
+  title           String
+  slug            String    @unique
+  excerpt         String
+  content         String
+  featuredImage   String?   @map("featured_image")
+  category        String
+  tags            String?
+  isPublished     Boolean   @default(false) @map("is_published")
+  publishedAt     DateTime? @map("published_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // v3.0 SEO metadata fields
+  metaTitle       String?   @map("meta_title")
+  metaDescription String?   @map("meta_description")
+  metaTags        String?   @map("meta_tags")
+
+  @@map("articles")
+}
+
+model Author {
+  id             String    @id @default(cuid())
+  name           String
+  slug           String    @unique
+  avatar         String?
+  title          String
+  bio            String
+  specialty      String
+  socialTwitter  String?   @map("social_twitter")
+  socialLinkedIn String?   @map("social_linkedin")
+  articles       Article[]
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("authors")
+}
+
+model Vote {
+  id        String   @id @default(cuid())
+  matchId   String   @map("match_id")
+  match     Match    @relation(fields: [matchId], references: [id])
+  teamId    String   @map("team_id")
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([matchId, ipAddress])
+  @@map("votes")
+}
