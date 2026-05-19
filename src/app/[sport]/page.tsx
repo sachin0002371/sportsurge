@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import MatchCard from '@/components/MatchCard';
 import ArticleCard from '@/components/ArticleCard';
 import StandingsTable from '@/components/StandingsTable';
-import GenerateArticleButton from '@/components/GenerateArticleButton';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SportIcon from '@/components/SportIcon';
@@ -216,15 +215,11 @@ export default async function SportPage({ params }: SportPageProps) {
 
           {/* News Tab */}
           <TabsContent value="news">
-            <div className="mb-6">
-              <GenerateArticleButton sportSlug={sportSlug} sportName={sport.name} />
-            </div>
-
             {articles.length === 0 ? (
               <div className="text-center py-12">
                 <span className="text-4xl block mb-3">📰</span>
                 <h3 className="text-lg font-semibold" style={{ color: '#222226' }}>No Articles Yet</h3>
-                <p style={{ color: 'rgba(34,34,38,0.5)' }} className="mt-1">Use the generator above or check back soon for {sport.name} coverage</p>
+                <p style={{ color: 'rgba(34,34,38,0.5)' }} className="mt-1">Check back soon for {sport.name} coverage</p>
               </div>
             ) : (
               <>
