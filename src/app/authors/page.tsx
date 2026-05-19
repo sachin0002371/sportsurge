@@ -1,6 +1,8 @@
 import { db } from '@/lib/db';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Our Writers - Sportsurge Official',
   description: 'Meet the expert writers and analysts behind Sportsurge Official\'s sports coverage. NBA, NFL, MLB, NHL, F1, MMA, Cricket and more.',

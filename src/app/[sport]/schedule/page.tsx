@@ -9,6 +9,8 @@ interface SchedulePageProps {
   params: Promise<{ sport: string }>;
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function generateStaticParams() {
   const sports = await db.sport.findMany({ select: { slug: true } });
   return sports.map((sport) => ({ sport: sport.slug }));

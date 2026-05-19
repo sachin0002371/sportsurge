@@ -16,6 +16,8 @@ interface MatchPageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function generateStaticParams() {
   const matches = await db.match.findMany({
     select: { slug: true, sport: { select: { slug: true } } },

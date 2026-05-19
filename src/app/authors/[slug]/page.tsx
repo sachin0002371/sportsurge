@@ -8,6 +8,8 @@ interface AuthorPageProps {
   params: Promise<{ slug: string }>;
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function generateMetadata({ params }: AuthorPageProps) {
   const { slug } = await params;
   const author = await db.author.findUnique({ where: { slug } });

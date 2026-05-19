@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
+export const dynamic = 'force-dynamic';
+
 interface SportPageProps {
   params: Promise<{ sport: string }>;
 }

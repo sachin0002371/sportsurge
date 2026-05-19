@@ -16,6 +16,8 @@ interface ArticlePageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function generateStaticParams() {
   const articles = await db.article.findMany({
     select: { slug: true, sport: { select: { slug: true } } },
