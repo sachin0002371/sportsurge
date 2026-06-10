@@ -8,7 +8,7 @@ interface NewsPageProps {
   params: Promise<{ sport: string }>;
 }
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 1800; // Cache for 30 minutes
 
 export async function generateStaticParams() {
   const sports = await db.sport.findMany({ select: { slug: true } });

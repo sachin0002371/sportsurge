@@ -16,7 +16,7 @@ interface MatchPageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 600; // Cache for 10 minutes
 
 export async function generateStaticParams() {
   const matches = await db.match.findMany({

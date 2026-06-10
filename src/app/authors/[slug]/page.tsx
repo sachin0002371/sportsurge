@@ -8,7 +8,7 @@ interface AuthorPageProps {
   params: Promise<{ slug: string }>;
 }
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 3600; // Cache for 1 hour
 
 export async function generateMetadata({ params }: AuthorPageProps) {
   const { slug } = await params;

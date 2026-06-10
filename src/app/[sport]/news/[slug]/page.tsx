@@ -16,7 +16,7 @@ interface ArticlePageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 3600; // Cache for 1 hour
 
 export async function generateStaticParams() {
   const articles = await db.article.findMany({

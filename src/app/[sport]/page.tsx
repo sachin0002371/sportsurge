@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 900; // Cache for 15 minutes
 
 interface SportPageProps {
   params: Promise<{ sport: string }>;

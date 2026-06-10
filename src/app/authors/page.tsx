@@ -1,7 +1,7 @@
 import { db } from '@/lib/db';
 import Link from 'next/link';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 86400; // Cache for 24 hours
 
 export const metadata = {
   title: 'Our Writers - Sportsurge Official',
