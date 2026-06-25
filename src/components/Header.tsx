@@ -113,6 +113,13 @@ export default function Header() {
                         {sport.name}
                       </Link>
                     ))}
+                    <Link
+                      href="/news"
+                      className="px-3 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-amber-400 rounded-lg flex items-center gap-3 transition-colors"
+                    >
+                      <PenLine className="h-4 w-4" />
+                      News
+                    </Link>
                     <Link href="/fifa-wc-2026" className="px-3 py-2.5 text-sm font-medium text-amber-400 hover:bg-white/10 rounded-lg flex items-center gap-3 transition-colors">
                       <Trophy className="h-4 w-4" />
                       WC2026
@@ -155,6 +162,18 @@ export default function Header() {
                 {sport.name}
               </Link>
             ))}
+            <Link
+              href="/news"
+              onClick={() => setActiveSport('news')}
+              className={`px-4 py-3 text-sm font-medium whitespace-nowrap flex items-center gap-2 transition-colors border-b-2 ${
+                activeSport === 'news'
+                  ? 'text-amber-400 border-amber-400'
+                  : 'text-white/70 border-transparent hover:text-amber-300'
+              }`}
+            >
+              <PenLine className="h-4 w-4" />
+              News
+            </Link>
           </div>
         </div>
       </nav>
