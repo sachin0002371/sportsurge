@@ -5,9 +5,6 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react'],
   },
-  outputFileTracingIncludes: {
-    '/**': ['./prisma/dev.db'],
-  },
   serverExternalPackages: ['@prisma/client', 'prisma'],
   typescript: {
     ignoreBuildErrors: true,
