@@ -1,11 +1,15 @@
 import { PrismaClient } from '@prisma/client'
 import { neonConfig } from '@neondatabase/serverless'
 import { PrismaNeon } from '@prisma/adapter-neon'
-import ws from 'ws'
 
-// Set WebSocket constructor for Node.js environments (local dev / build)
-if (!globalThis.WebSocket) {
-  neonConfig.webSocketConstructor = ws
+// Configure WebSocket for Node.js environments (local dev / build) where globalThis.WebSocket is missing
+if (typeof globalThis.WebSocket === 'undefined') {
+  try {
+    const ws = require('ws')
+    neonConfig.webSocketConstructor = ws
+  } catch {
+    // Ignore in edge runtimes
+  }
 }
 
 const DEFAULT_DB_URL = "postgresql://neondb_owner:npg_b0dgB9izZeHx@ep-billowing-paper-asl1j3hb-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
