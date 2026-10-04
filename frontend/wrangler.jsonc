@@ -7,5 +7,9 @@
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
+  },
+  "vars": {
+    "DATABASE_URL": "postgresql://neondb_owner:npg_CM8kpNeK0OgS@ep-fancy-meadow-ap0hajz0-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+    "BACKEND_URL": "https://sportsurgebackend-sportsurgebackend-krhn-babfc1-91-98-46-3.sslip.io"
   }
 }
