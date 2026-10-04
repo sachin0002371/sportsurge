@@ -41,8 +41,16 @@ export async function GET(request: NextRequest) {
       limit,
       totalPages: Math.ceil(total / limit),
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Matches API error:', error);
-    return NextResponse.json({ error: 'Failed to fetch matches' }, { status: 500 });
+    return NextResponse.json(
+      { 
+        error: 'Failed to fetch matches', 
+        details: error?.message || String(error),
+        dbUrlPresent: !!process.env.DATABASE_URL,
+        dbUrlHost: process.env.DATABASE_URL ? process.env.DATABASE_URL.split('@')[1]?.split('/')[0] : 'none'
+      }, 
+      { status: 500 }
+    );
   }
 }
