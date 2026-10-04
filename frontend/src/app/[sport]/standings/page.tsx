@@ -23,25 +23,49 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: StandingsPageProps) {
   const { sport: sportSlug } = await params;
-  const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-  if (!sport) return { title: 'Standings - Sportsurge Official' };
-
-  return {
-    title: `${sport.name} Standings - Sportsurge Official`,
-    description: `Official ${sport.name} standings, team records, win-loss percentages, and streaks. Updated live on Sportsurge Official.`,
-  };
+  try {
+    const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
+    const name = sport?.name || sportSlug.toUpperCase();
+    return {
+      title: `${name} Standings - Sportsurge Official`,
+      description: `Official ${name} standings, team records, win-loss percentages, and streaks. Updated live on Sportsurge Official.`,
+    };
+  } catch (error) {
+    return { title: 'Standings - Sportsurge Official' };
+  }
 }
 
 export default async function StandingsPage({ params }: StandingsPageProps) {
   const { sport: sportSlug } = await params;
-  const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-  if (!sport) notFound();
+  let sport: any = null;
+  let standings: any[] = [];
 
-  const standings = await db.standing.findMany({
-    where: { sportId: sport.id },
-    include: { team: true, sport: true },
-    orderBy: { position: 'asc' },
-  });
+  try {
+    sport = await db.sport.findUnique({ where: { slug: sportSlug } });
+    if (sport) {
+      standings = await db.standing.findMany({
+        where: { sportId: sport.id },
+        include: { team: true, sport: true },
+        orderBy: { position: 'asc' },
+      });
+    }
+  } catch (error) {
+    console.warn(`[StandingsPage] db error for ${sportSlug}:`, error);
+  }
+
+  if (!sport) {
+    const knownSports = ['nba', 'nfl', 'mlb', 'nhl', 'ncaaf', 'ncaab', 'f1', 'mma', 'boxing', 'cricket'];
+    if (!knownSports.includes(sportSlug.toLowerCase())) {
+      notFound();
+    }
+    const sportNames: Record<string, string> = {
+      nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+      ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+      boxing: 'Boxing', cricket: 'Cricket',
+    };
+    const name = sportNames[sportSlug] || sportSlug.toUpperCase();
+    sport = { id: sportSlug, slug: sportSlug, name };
+  }
 
   return (
     <div className="min-h-screen">

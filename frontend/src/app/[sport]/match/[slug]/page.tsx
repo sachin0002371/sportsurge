@@ -36,34 +36,38 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: MatchPageProps) {
   const { sport: sportSlug, slug } = await params;
-  const match = await db.match.findFirst({
-    where: { slug },
-    include: { homeTeam: true, awayTeam: true, sport: true },
-  });
+  try {
+    const match = await db.match.findFirst({
+      where: { slug },
+      include: { homeTeam: true, awayTeam: true, sport: true },
+    });
 
-  if (!match) return { title: 'Match Not Found - Sportsurge Official' };
+    if (!match) return { title: 'Match Not Found - Sportsurge Official' };
 
-  const statusText = match.status === 'live' ? 'Live score updates' : match.status === 'upcoming' ? `Starts ${formatDateTime(match.matchDate)}` : 'Match results and recap';
-  const description = `${match.homeTeam.name} vs ${match.awayTeam.name} - ${match.sport.name}. ${statusText}. Watch highlights, vote on the outcome, and find where to watch legally.`;
+    const statusText = match.status === 'live' ? 'Live score updates' : match.status === 'upcoming' ? `Starts ${formatDateTime(match.matchDate)}` : 'Match results and recap';
+    const description = `${match.homeTeam.name} vs ${match.awayTeam.name} - ${match.sport.name}. ${statusText}. Watch highlights, vote on the outcome, and find where to watch legally.`;
 
-  return {
-    title: `${match.homeTeam.name} vs ${match.awayTeam.name} - Sportsurge Official`,
-    description: description.substring(0, 160),
-    openGraph: {
-      title: `${match.homeTeam.name} vs ${match.awayTeam.name} - ${match.sport.name}`,
+    return {
+      title: `${match.homeTeam.name} vs ${match.awayTeam.name} - Sportsurge Official`,
       description: description.substring(0, 160),
-      type: 'article',
-      images: match.homeTeam.logo ? [match.homeTeam.logo] : undefined,
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: `${match.homeTeam.name} vs ${match.awayTeam.name} - ${match.sport.name}`,
-      description: description.substring(0, 160),
-    },
-    other: {
-      'robots': 'max-image-preview:large',
-    },
-  };
+      openGraph: {
+        title: `${match.homeTeam.name} vs ${match.awayTeam.name} - ${match.sport.name}`,
+        description: description.substring(0, 160),
+        type: 'article',
+        images: match.homeTeam.logo ? [match.homeTeam.logo] : undefined,
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: `${match.homeTeam.name} vs ${match.awayTeam.name} - ${match.sport.name}`,
+        description: description.substring(0, 160),
+      },
+      other: {
+        'robots': 'max-image-preview:large',
+      },
+    };
+  } catch (error) {
+    return { title: 'Sportsurge Official' };
+  }
 }
 
 function generateMatchSEO(
@@ -107,35 +111,45 @@ function generateMatchSEO(
 
 export default async function MatchPage({ params }: MatchPageProps) {
   const { sport: sportSlug, slug } = await params;
-  const match = await db.match.findFirst({
-    where: { slug },
-    include: { homeTeam: true, awayTeam: true, sport: true },
-  });
+  let match: any = null;
+  let relatedArticles: any[] = [];
+  let relatedMatches: any[] = [];
+
+  try {
+    match = await db.match.findFirst({
+      where: { slug },
+      include: { homeTeam: true, awayTeam: true, sport: true },
+    });
+
+    if (match) {
+      [relatedArticles, relatedMatches] = await Promise.all([
+        db.article.findMany({
+          where: {
+            sportId: match.sportId,
+            isPublished: true,
+            id: { not: match.id },
+          },
+          include: { author: true, sport: true },
+          orderBy: { publishedAt: 'desc' },
+          take: 3,
+        }),
+        db.match.findMany({
+          where: {
+            sportId: match.sportId,
+            status: { in: ['live', 'upcoming'] },
+            id: { not: match.id },
+          },
+          include: { homeTeam: true, awayTeam: true, sport: true },
+          orderBy: { matchDate: 'asc' },
+          take: 4,
+        }),
+      ]);
+    }
+  } catch (error) {
+    console.warn(`[MatchPage] db error for ${slug}:`, error);
+  }
 
   if (!match) notFound();
-
-  const [relatedArticles, relatedMatches] = await Promise.all([
-    db.article.findMany({
-      where: {
-        sportId: match.sportId,
-        isPublished: true,
-        id: { not: match.id },
-      },
-      include: { author: true, sport: true },
-      orderBy: { publishedAt: 'desc' },
-      take: 3,
-    }),
-    db.match.findMany({
-      where: {
-        sportId: match.sportId,
-        status: { in: ['live', 'upcoming'] },
-        id: { not: match.id },
-      },
-      include: { homeTeam: true, awayTeam: true, sport: true },
-      orderBy: { matchDate: 'asc' },
-      take: 4,
-    }),
-  ]);
 
   const seoContent = generateMatchSEO(
     match.homeTeam,

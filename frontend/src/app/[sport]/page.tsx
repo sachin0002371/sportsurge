@@ -26,70 +26,107 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: SportPageProps) {
   const { sport: sportSlug } = await params;
-  const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-  if (!sport) return { title: 'Sportsurge Official' };
+  try {
+    const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
+    if (!sport) {
+      const sportNames: Record<string, string> = {
+        nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+        ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+        boxing: 'Boxing', cricket: 'Cricket',
+      };
+      const name = sportNames[sportSlug] || sportSlug.toUpperCase();
+      return { title: `Sportsurge Official - ${name} Live Scores, Schedule & News` };
+    }
 
-  const description = `Get the latest ${sport.name} live scores, match schedules, standings, and news. Complete coverage of ${sport.name} on Sportsurge Official.`;
+    const description = `Get the latest ${sport.name} live scores, match schedules, standings, and news. Complete coverage of ${sport.name} on Sportsurge Official.`;
 
-  return {
-    title: `Sportsurge Official - ${sport.name} Live Scores, Schedule & News`,
-    description: description.substring(0, 160),
-    openGraph: {
-      title: `Sportsurge Official - ${sport.name} Live Scores & News`,
+    return {
+      title: `Sportsurge Official - ${sport.name} Live Scores, Schedule & News`,
       description: description.substring(0, 160),
-      type: 'website',
-      siteName: 'Sportsurge Official',
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: `Sportsurge Official - ${sport.name}`,
-      description: description.substring(0, 160),
-    },
-    other: {
-      'robots': 'max-image-preview:large',
-    },
-  };
+      openGraph: {
+        title: `Sportsurge Official - ${sport.name} Live Scores & News`,
+        description: description.substring(0, 160),
+        type: 'website',
+        siteName: 'Sportsurge Official',
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: `Sportsurge Official - ${sport.name}`,
+        description: description.substring(0, 160),
+      },
+      other: {
+        'robots': 'max-image-preview:large',
+      },
+    };
+  } catch (err) {
+    return { title: 'Sportsurge Official' };
+  }
 }
 
 export default async function SportPage({ params }: SportPageProps) {
   const { sport: sportSlug } = await params;
-  const sport = await db.sport.findUnique({
-    where: { slug: sportSlug },
-    include: { teams: true },
-  });
+  let sport: any = null;
+  let liveMatches: any[] = [];
+  let upcomingMatches: any[] = [];
+  let finishedMatches: any[] = [];
+  let articles: any[] = [];
+  let standings: any[] = [];
 
-  if (!sport) notFound();
+  try {
+    sport = await db.sport.findUnique({
+      where: { slug: sportSlug },
+      include: { teams: true },
+    });
 
-  const [liveMatches, upcomingMatches, finishedMatches, articles, standings] = await Promise.all([
-    db.match.findMany({
-      where: { sportId: sport.id, status: 'live' },
-      include: { homeTeam: true, awayTeam: true, sport: true },
-      orderBy: { matchDate: 'desc' },
-    }),
-    db.match.findMany({
-      where: { sportId: sport.id, status: 'upcoming' },
-      include: { homeTeam: true, awayTeam: true, sport: true },
-      orderBy: { matchDate: 'asc' },
-      take: 10,
-    }),
-    db.match.findMany({
-      where: { sportId: sport.id, status: 'finished' },
-      include: { homeTeam: true, awayTeam: true, sport: true },
-      orderBy: { matchDate: 'desc' },
-      take: 10,
-    }),
-    db.article.findMany({
-      where: { sportId: sport.id, isPublished: true },
-      include: { author: true, sport: true },
-      orderBy: { publishedAt: 'desc' },
-      take: 6,
-    }),
-    db.standing.findMany({
-      where: { sportId: sport.id },
-      include: { team: true, sport: true },
-      orderBy: { position: 'asc' },
-    }),
-  ]);
+    if (sport) {
+      [liveMatches, upcomingMatches, finishedMatches, articles, standings] = await Promise.all([
+        db.match.findMany({
+          where: { sportId: sport.id, status: 'live' },
+          include: { homeTeam: true, awayTeam: true, sport: true },
+          orderBy: { matchDate: 'desc' },
+        }),
+        db.match.findMany({
+          where: { sportId: sport.id, status: 'upcoming' },
+          include: { homeTeam: true, awayTeam: true, sport: true },
+          orderBy: { matchDate: 'asc' },
+          take: 10,
+        }),
+        db.match.findMany({
+          where: { sportId: sport.id, status: 'finished' },
+          include: { homeTeam: true, awayTeam: true, sport: true },
+          orderBy: { matchDate: 'desc' },
+          take: 10,
+        }),
+        db.article.findMany({
+          where: { sportId: sport.id, isPublished: true },
+          include: { author: true, sport: true },
+          orderBy: { publishedAt: 'desc' },
+          take: 6,
+        }),
+        db.standing.findMany({
+          where: { sportId: sport.id },
+          include: { team: true, sport: true },
+          orderBy: { position: 'asc' },
+        }),
+      ]);
+    }
+  } catch (error) {
+    console.warn(`[SportPage] db query error for ${sportSlug}:`, error);
+  }
+
+  if (!sport) {
+    const knownSports = ['nba', 'nfl', 'mlb', 'nhl', 'ncaaf', 'ncaab', 'f1', 'mma', 'boxing', 'cricket'];
+    if (!knownSports.includes(sportSlug.toLowerCase())) {
+      notFound();
+    }
+    const sportNames: Record<string, string> = {
+      nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+      ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+      boxing: 'Boxing', cricket: 'Cricket',
+    };
+    const name = sportNames[sportSlug] || sportSlug.toUpperCase();
+    sport = { id: sportSlug, slug: sportSlug, name, teams: [] };
+  }
 
   return (
     <div className="min-h-screen">

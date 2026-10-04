@@ -42,90 +42,102 @@ function calculateReadingTime(content: string): number {
 
 export async function generateMetadata({ params }: ArticlePageProps) {
   const { slug } = await params;
-  const article = await db.article.findUnique({
-    where: { slug },
-    include: { author: true, sport: true },
-  });
+  try {
+    const article = await db.article.findUnique({
+      where: { slug },
+      include: { author: true, sport: true },
+    });
 
-  if (!article) return { title: 'Article Not Found - Sportsurge Official' };
+    if (!article) return { title: 'Article Not Found - Sportsurge Official' };
 
-  const metaTitle = article.metaTitle ? `${article.metaTitle} - Sportsurge Official` : `${article.title} - Sportsurge Official`;
-  const metaDescription = article.metaDescription || article.excerpt;
+    const metaTitle = article.metaTitle ? `${article.metaTitle} - Sportsurge Official` : `${article.title} - Sportsurge Official`;
+    const metaDescription = article.metaDescription || article.excerpt;
 
-  return {
-    title: metaTitle,
-    description: metaDescription,
-    openGraph: {
+    return {
       title: metaTitle,
-      description: metaDescription || '',
-      images: article.featuredImage ? [{ url: article.featuredImage, width: 1200, height: 675 }] : [],
-      type: 'article',
-      publishedTime: article.publishedAt?.toISOString(),
-      authors: [article.author.name],
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: metaTitle,
-      description: metaDescription || '',
-      images: article.featuredImage ? [article.featuredImage] : [],
-    },
-    other: {
-      'robots': 'max-image-preview:large',
-    },
-  };
+      description: metaDescription,
+      openGraph: {
+        title: metaTitle,
+        description: metaDescription || '',
+        images: article.featuredImage ? [{ url: article.featuredImage, width: 1200, height: 675 }] : [],
+        type: 'article',
+        publishedTime: article.publishedAt?.toISOString(),
+        authors: [article.author.name],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: metaTitle,
+        description: metaDescription || '',
+        images: article.featuredImage ? [article.featuredImage] : [],
+      },
+      other: {
+        'robots': 'max-image-preview:large',
+      },
+    };
+  } catch (error) {
+    return { title: 'Sportsurge Official' };
+  }
 }
 
 export default async function ArticlePage({ params }: ArticlePageProps) {
   const { sport: sportSlug, slug } = await params;
-  const article = await db.article.findUnique({
-    where: { slug },
-    include: { author: true, sport: true },
-  });
+  let article: any = null;
+  let relatedArticles: any[] = [];
+  let readNextArticles: any[] = [];
+  let trendingArticles: any[] = [];
+
+  try {
+    article = await db.article.findUnique({
+      where: { slug },
+      include: { author: true, sport: true },
+    });
+
+    if (article) {
+      [relatedArticles, readNextArticles, trendingArticles] = await Promise.all([
+        db.article.findMany({
+          where: {
+            sportId: article.sportId,
+            isPublished: true,
+            id: { not: article.id },
+          },
+          include: { author: true, sport: true },
+          orderBy: { publishedAt: 'desc' },
+          take: 3,
+        }),
+        db.article.findMany({
+          where: {
+            isPublished: true,
+            id: { not: article.id },
+            sportId: { not: article.sportId ?? undefined },
+          },
+          include: { author: true, sport: true },
+          orderBy: { publishedAt: 'desc' },
+          take: 3,
+        }),
+        db.article.findMany({
+          where: {
+            sportId: article.sportId,
+            isPublished: true,
+            id: { not: article.id },
+          },
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            publishedAt: true,
+            featuredImage: true,
+            sport: { select: { slug: true } },
+          },
+          orderBy: { publishedAt: 'desc' },
+          take: 4,
+        }),
+      ]);
+    }
+  } catch (error) {
+    console.warn(`[ArticlePage] db error for ${slug}:`, error);
+  }
 
   if (!article) notFound();
-
-  const [relatedArticles, readNextArticles, trendingArticles] = await Promise.all([
-    // Same-sport related articles
-    db.article.findMany({
-      where: {
-        sportId: article.sportId,
-        isPublished: true,
-        id: { not: article.id },
-      },
-      include: { author: true, sport: true },
-      orderBy: { publishedAt: 'desc' },
-      take: 3,
-    }),
-    // Cross-sport read next
-    db.article.findMany({
-      where: {
-        isPublished: true,
-        id: { not: article.id },
-        sportId: { not: article.sportId ?? undefined },
-      },
-      include: { author: true, sport: true },
-      orderBy: { publishedAt: 'desc' },
-      take: 3,
-    }),
-    // Trending: recent same-sport for sidebar (lightweight select)
-    db.article.findMany({
-      where: {
-        sportId: article.sportId,
-        isPublished: true,
-        id: { not: article.id },
-      },
-      select: {
-        id: true,
-        title: true,
-        slug: true,
-        publishedAt: true,
-        featuredImage: true,
-        sport: { select: { slug: true } },
-      },
-      orderBy: { publishedAt: 'desc' },
-      take: 4,
-    }),
-  ]);
 
   const readingTime = calculateReadingTime(article.content);
 

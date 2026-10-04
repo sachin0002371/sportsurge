@@ -22,33 +22,57 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: NewsPageProps) {
   const { sport: sportSlug } = await params;
-  const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-  if (!sport) return { title: 'News - Sportsurge Official' };
-
-  return {
-    title: `${sport.name} News & Articles - Sportsurge Official`,
-    description: `Latest ${sport.name} news, analysis, previews, recaps, and expert opinion. Stay updated with Sportsurge Official's ${sport.name} coverage.`,
-    openGraph: {
-      title: `${sport.name} News - Sportsurge Official`,
-      description: `Latest ${sport.name} news, analysis, and expert opinion`,
-      type: 'website',
-      siteName: 'Sportsurge Official',
-    },
-  };
+  try {
+    const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
+    const name = sport?.name || sportSlug.toUpperCase();
+    return {
+      title: `${name} News & Articles - Sportsurge Official`,
+      description: `Latest ${name} news, analysis, previews, recaps, and expert opinion. Stay updated with Sportsurge Official's ${name} coverage.`,
+      openGraph: {
+        title: `${name} News - Sportsurge Official`,
+        description: `Latest ${name} news, analysis, and expert opinion`,
+        type: 'website',
+        siteName: 'Sportsurge Official',
+      },
+    };
+  } catch (error) {
+    return { title: 'News - Sportsurge Official' };
+  }
 }
 
 const categories = ['news', 'analysis', 'preview', 'recap', 'opinion'];
 
 export default async function NewsPage({ params }: NewsPageProps) {
   const { sport: sportSlug } = await params;
-  const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-  if (!sport) notFound();
+  let sport: any = null;
+  let articles: any[] = [];
 
-  const articles = await db.article.findMany({
-    where: { sportId: sport.id, isPublished: true },
-    include: { author: true, sport: true },
-    orderBy: { publishedAt: 'desc' },
-  });
+  try {
+    sport = await db.sport.findUnique({ where: { slug: sportSlug } });
+    if (sport) {
+      articles = await db.article.findMany({
+        where: { sportId: sport.id, isPublished: true },
+        include: { author: true, sport: true },
+        orderBy: { publishedAt: 'desc' },
+      });
+    }
+  } catch (error) {
+    console.warn(`[NewsPage] db error for ${sportSlug}:`, error);
+  }
+
+  if (!sport) {
+    const knownSports = ['nba', 'nfl', 'mlb', 'nhl', 'ncaaf', 'ncaab', 'f1', 'mma', 'boxing', 'cricket'];
+    if (!knownSports.includes(sportSlug.toLowerCase())) {
+      notFound();
+    }
+    const sportNames: Record<string, string> = {
+      nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+      ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+      boxing: 'Boxing', cricket: 'Cricket',
+    };
+    const name = sportNames[sportSlug] || sportSlug.toUpperCase();
+    sport = { id: sportSlug, slug: sportSlug, name };
+  }
 
   const categoryCounts: Record<string, number> = {};
   categories.forEach(cat => {

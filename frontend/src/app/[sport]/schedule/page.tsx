@@ -23,25 +23,49 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: SchedulePageProps) {
   const { sport: sportSlug } = await params;
-  const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-  if (!sport) return { title: 'Schedule - Sportsurge Official' };
-
-  return {
-    title: `${sport.name} Schedule - Sportsurge Official`,
-    description: `Complete ${sport.name} schedule with upcoming matches, dates, times, and broadcast info. Never miss a game with Sportsurge Official.`,
-  };
+  try {
+    const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
+    const name = sport?.name || sportSlug.toUpperCase();
+    return {
+      title: `${name} Schedule - Sportsurge Official`,
+      description: `Complete ${name} schedule with upcoming matches, dates, times, and broadcast info. Never miss a game with Sportsurge Official.`,
+    };
+  } catch (error) {
+    return { title: 'Schedule - Sportsurge Official' };
+  }
 }
 
 export default async function SchedulePage({ params }: SchedulePageProps) {
   const { sport: sportSlug } = await params;
-  const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-  if (!sport) notFound();
+  let sport: any = null;
+  let matches: any[] = [];
 
-  const matches = await db.match.findMany({
-    where: { sportId: sport.id, status: 'upcoming' },
-    include: { homeTeam: true, awayTeam: true, sport: true },
-    orderBy: { matchDate: 'asc' },
-  });
+  try {
+    sport = await db.sport.findUnique({ where: { slug: sportSlug } });
+    if (sport) {
+      matches = await db.match.findMany({
+        where: { sportId: sport.id, status: 'upcoming' },
+        include: { homeTeam: true, awayTeam: true, sport: true },
+        orderBy: { matchDate: 'asc' },
+      });
+    }
+  } catch (error) {
+    console.warn(`[SchedulePage] db error for ${sportSlug}:`, error);
+  }
+
+  if (!sport) {
+    const knownSports = ['nba', 'nfl', 'mlb', 'nhl', 'ncaaf', 'ncaab', 'f1', 'mma', 'boxing', 'cricket'];
+    if (!knownSports.includes(sportSlug.toLowerCase())) {
+      notFound();
+    }
+    const sportNames: Record<string, string> = {
+      nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+      ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+      boxing: 'Boxing', cricket: 'Cricket',
+    };
+    const name = sportNames[sportSlug] || sportSlug.toUpperCase();
+    sport = { id: sportSlug, slug: sportSlug, name };
+  }
 
   return (
     <div className="min-h-screen">
