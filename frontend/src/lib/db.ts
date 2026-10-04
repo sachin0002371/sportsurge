@@ -5,15 +5,35 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-function createPrismaClient(): PrismaClient {
+function getPrismaClient(): PrismaClient {
+  if (globalForPrisma.prisma) {
+    return globalForPrisma.prisma
+  }
+
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) {
-    throw new Error('DATABASE_URL environment variable is missing.')
+    console.warn('⚠️ [db.ts] DATABASE_URL environment variable is missing at runtime.')
   }
-  const adapter = new PrismaNeonHttp(connectionString)
-  return new PrismaClient({ adapter, log: ['error'] })
+
+  const adapter = new PrismaNeonHttp(connectionString || '')
+  const client = new PrismaClient({ adapter, log: ['error'] })
+
+  if (process.env.NODE_ENV !== 'production') {
+    globalForPrisma.prisma = client
+  }
+
+  return client
 }
 
-export const db = globalForPrisma.prisma ?? createPrismaClient()
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+// Export a lazy Proxy so PrismaClient is never instantiated at module load time.
+// This prevents top-level module crashes during Cloudflare Worker isolate initialization.
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, prop: string | symbol) {
+    const client = getPrismaClient()
+    const value = (client as any)[prop]
+    if (typeof value === 'function') {
+      return value.bind(client)
+    }
+    return value
+  },
+})
