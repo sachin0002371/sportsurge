@@ -13,6 +13,15 @@ function getSql() {
   return neon(connStr);
 }
 
+function formatImageUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  const backendUrl = process.env.BACKEND_URL || 'https://sportsurgebackend-sportsurgebackend-krhn-babfc1-91-98-46-3.sslip.io';
+  if (url.includes('backend.sportsurgeplay.com')) {
+    return url.replace('https://backend.sportsurgeplay.com', backendUrl);
+  }
+  return url;
+}
+
 // Data Mappers (snake_case DB -> camelCase Prisma object)
 function mapSport(row: any) {
   if (!row || typeof row !== 'object' || !row.id) return undefined;
@@ -20,7 +29,7 @@ function mapSport(row: any) {
     id: row.id,
     slug: row.slug,
     name: row.name,
-    icon: row.icon || '',
+    icon: formatImageUrl(row.icon) || '',
     color: row.color || '',
     isActive: row.is_active ?? true,
     sortOrder: row.sort_order ?? 0,
@@ -37,7 +46,7 @@ function mapTeam(row: any) {
     abbreviation: row.abbreviation || '',
     slug: row.slug,
     city: row.city,
-    logo: row.logo,
+    logo: formatImageUrl(row.logo),
     color: row.color,
     createdAt: row.created_at ? new Date(row.created_at) : new Date(),
     updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
@@ -50,7 +59,7 @@ function mapAuthor(row: any) {
     id: row.id,
     name: row.name,
     slug: row.slug,
-    avatar: row.avatar,
+    avatar: formatImageUrl(row.avatar),
     title: row.title || '',
     bio: row.bio || '',
     specialty: row.specialty || '',
@@ -72,7 +81,7 @@ function mapArticle(row: any) {
     slug: row.slug,
     excerpt: row.excerpt || '',
     content: row.content || '',
-    featuredImage: row.featured_image,
+    featuredImage: formatImageUrl(row.featured_image),
     category: row.category || 'news',
     tags: row.tags,
     isPublished: row.is_published ?? true,
