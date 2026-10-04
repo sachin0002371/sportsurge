@@ -56,35 +56,45 @@ const TOP_PREDICTORS = [
 ];
 
 export default async function HomePage() {
-  const [matches, articles, standings, sports, finishedMatches] = await Promise.all([
-    db.match.findMany({
-      where: { status: { in: ['live', 'upcoming'] } },
-      include: { homeTeam: true, awayTeam: true, sport: true },
-      orderBy: { matchDate: 'asc' },
-      take: 20,
-    }),
-    db.article.findMany({
-      where: { isPublished: true },
-      include: { author: true, sport: true },
-      orderBy: { publishedAt: 'desc' },
-      take: 12,
-    }),
-    db.standing.findMany({
-      include: { team: true, sport: true },
-      orderBy: [{ position: 'asc' }],
-      take: 30,
-    }),
-    db.sport.findMany({
-      where: { isActive: true },
-      orderBy: { sortOrder: 'asc' },
-    }),
-    db.match.findMany({
-      where: { status: 'finished' },
-      include: { homeTeam: true, awayTeam: true, sport: true },
-      orderBy: { matchDate: 'desc' },
-      take: 8,
-    }),
-  ]);
+  let matches: any[] = [];
+  let articles: any[] = [];
+  let standings: any[] = [];
+  let sports: any[] = [];
+  let finishedMatches: any[] = [];
+
+  try {
+    [matches, articles, standings, sports, finishedMatches] = await Promise.all([
+      db.match.findMany({
+        where: { status: { in: ['live', 'upcoming'] } },
+        include: { homeTeam: true, awayTeam: true, sport: true },
+        orderBy: { matchDate: 'asc' },
+        take: 20,
+      }),
+      db.article.findMany({
+        where: { isPublished: true },
+        include: { author: true, sport: true },
+        orderBy: { publishedAt: 'desc' },
+        take: 12,
+      }),
+      db.standing.findMany({
+        include: { team: true, sport: true },
+        orderBy: [{ position: 'asc' }],
+        take: 30,
+      }),
+      db.sport.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      db.match.findMany({
+        where: { status: 'finished' },
+        include: { homeTeam: true, awayTeam: true, sport: true },
+        orderBy: { matchDate: 'desc' },
+        take: 8,
+      }),
+    ]);
+  } catch (error) {
+    console.warn('HomePage db error during prerender:', error);
+  }
 
   const liveMatches = matches.filter(m => m.status === 'live');
   const upcomingMatches = matches.filter(m => m.status === 'upcoming');

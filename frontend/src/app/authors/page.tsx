@@ -9,15 +9,20 @@ export const metadata = {
 };
 
 export default async function AuthorsPage() {
-  const authors = await db.author.findMany({
-    include: {
-      articles: {
-        where: { isPublished: true },
-        select: { id: true },
+  let authors: any[] = [];
+  try {
+    authors = await db.author.findMany({
+      include: {
+        articles: {
+          where: { isPublished: true },
+          select: { id: true },
+        },
       },
-    },
-    orderBy: { name: 'asc' },
-  });
+      orderBy: { name: 'asc' },
+    });
+  } catch (error) {
+    console.warn('AuthorsPage db error during prerender:', error);
+  }
 
   return (
     <div className="min-h-screen">

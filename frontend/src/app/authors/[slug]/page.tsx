@@ -12,33 +12,42 @@ export const revalidate = 3600; // Cache for 1 hour
 
 export async function generateMetadata({ params }: AuthorPageProps) {
   const { slug } = await params;
-  const author = await db.author.findUnique({ where: { slug } });
-  if (!author) return { title: 'Author Not Found - Sportsurge Official' };
+  try {
+    const author = await db.author.findUnique({ where: { slug } });
+    if (!author) return { title: 'Author Not Found - Sportsurge Official' };
 
-  return {
-    title: `${author.name} - ${author.title} - Sportsurge Official`,
-    description: author.bio,
-    openGraph: {
-      title: `${author.name} - ${author.title}`,
+    return {
+      title: `${author.name} - ${author.title} - Sportsurge Official`,
       description: author.bio,
-      type: 'profile',
-      siteName: 'Sportsurge Official',
-    },
-  };
+      openGraph: {
+        title: `${author.name} - ${author.title}`,
+        description: author.bio,
+        type: 'profile',
+        siteName: 'Sportsurge Official',
+      },
+    };
+  } catch (error) {
+    return { title: 'Author - Sportsurge Official' };
+  }
 }
 
 export default async function AuthorPage({ params }: AuthorPageProps) {
   const { slug } = await params;
-  const author = await db.author.findUnique({
-    where: { slug },
-    include: {
-      articles: {
-        where: { isPublished: true },
-        include: { author: true, sport: true },
-        orderBy: { publishedAt: 'desc' },
+  let author: any = null;
+  try {
+    author = await db.author.findUnique({
+      where: { slug },
+      include: {
+        articles: {
+          where: { isPublished: true },
+          include: { author: true, sport: true },
+          orderBy: { publishedAt: 'desc' },
+        },
       },
-    },
-  });
+    });
+  } catch (error) {
+    console.warn('AuthorPage db error during prerender:', error);
+  }
 
   if (!author) notFound();
 
