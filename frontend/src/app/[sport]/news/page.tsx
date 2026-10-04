@@ -11,8 +11,13 @@ interface NewsPageProps {
 export const revalidate = 1800; // Cache for 30 minutes
 
 export async function generateStaticParams() {
-  const sports = await db.sport.findMany({ select: { slug: true } });
-  return sports.map((sport) => ({ sport: sport.slug }));
+  try {
+    const sports = await db.sport.findMany({ select: { slug: true } });
+    return sports.map((sport) => ({ sport: sport.slug }));
+  } catch (error) {
+    console.warn('generateStaticParams sport news error:', error);
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: NewsPageProps) {

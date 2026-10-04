@@ -15,8 +15,13 @@ interface SportPageProps {
 }
 
 export async function generateStaticParams() {
-  const sports = await db.sport.findMany({ select: { slug: true } });
-  return sports.map((sport) => ({ sport: sport.slug }));
+  try {
+    const sports = await db.sport.findMany({ select: { slug: true } });
+    return sports.map((sport) => ({ sport: sport.slug }));
+  } catch (error) {
+    console.warn('generateStaticParams sport error:', error);
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: SportPageProps) {

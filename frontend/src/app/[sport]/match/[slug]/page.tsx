@@ -19,13 +19,19 @@ interface MatchPageProps {
 export const revalidate = 600; // Cache for 10 minutes
 
 export async function generateStaticParams() {
-  const matches = await db.match.findMany({
-    select: { slug: true, sport: { select: { slug: true } } },
-  });
-  return matches.map((match) => ({
-    sport: match.sport.slug,
-    slug: match.slug,
-  }));
+  try {
+    const matches = await db.match.findMany({
+      select: { slug: true, sport: { select: { slug: true } } },
+      take: 50,
+    });
+    return matches.map((match) => ({
+      sport: match.sport.slug,
+      slug: match.slug,
+    }));
+  } catch (error) {
+    console.warn('generateStaticParams match error:', error);
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: MatchPageProps) {

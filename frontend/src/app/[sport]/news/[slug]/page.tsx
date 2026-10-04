@@ -19,13 +19,19 @@ interface ArticlePageProps {
 export const revalidate = 3600; // Cache for 1 hour
 
 export async function generateStaticParams() {
-  const articles = await db.article.findMany({
-    select: { slug: true, sport: { select: { slug: true } } },
-  });
-  return articles.map((article) => ({
-    sport: article.sport?.slug || 'news',
-    slug: article.slug,
-  }));
+  try {
+    const articles = await db.article.findMany({
+      select: { slug: true, sport: { select: { slug: true } } },
+      take: 50,
+    });
+    return articles.map((article) => ({
+      sport: article.sport?.slug || 'news',
+      slug: article.slug,
+    }));
+  } catch (error) {
+    console.warn('generateStaticParams news error:', error);
+    return [];
+  }
 }
 
 function calculateReadingTime(content: string): number {
