@@ -1,0 +1,652 @@
+"""
+Data Service - Core business logic v3.0
+Handles fetching ESPN data, processing it, and storing in the database.
+Updated to support v3.0 SEO metadata fields on articles.
+"""
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Optional
+from uuid import uuid4
+from slugify import slugify
+
+from sqlalchemy import select, update, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models.models import Sport, Team, Match, Standing, Article, Author, Vote
+from app.services.espn_service import (
+    fetch_scoreboard, fetch_standings, parse_espn_event, get_logo_with_fallback
+)
+from app.services.thesportsdb_service import get_team_logo as thesportsdb_logo
+from app.services.youtube_service import search_and_cache
+from app.services.ai_service import generate_article
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Default sports configuration
+DEFAULT_SPORTS = [
+    {"slug": "nba", "name": "NBA", "icon": "basketball", "color": "#C9082A", "sort_order": 1},
+    {"slug": "nfl", "name": "NFL", "icon": "football", "color": "#013369", "sort_order": 2},
+    {"slug": "mlb", "name": "MLB", "icon": "baseball", "color": "#041E42", "sort_order": 3},
+    {"slug": "nhl", "name": "NHL", "icon": "hockey", "color": "#000000", "sort_order": 4},
+    {"slug": "ncaaf", "name": "NCAAF", "icon": "football", "color": "#003B5C", "sort_order": 5},
+    {"slug": "ncaab", "name": "NCAAB", "icon": "basketball", "color": "#C8102E", "sort_order": 6},
+    {"slug": "f1", "name": "Formula 1", "icon": "racing", "color": "#E10600", "sort_order": 7},
+    {"slug": "mma", "name": "MMA", "icon": "fight", "color": "#D20A0A", "sort_order": 8},
+    {"slug": "boxing", "name": "Boxing", "icon": "boxing", "color": "#8B0000", "sort_order": 9},
+    {"slug": "cricket", "name": "Cricket", "icon": "cricket", "color": "#004B23", "sort_order": 10},
+]
+
+
+async def ensure_sports(db: AsyncSession) -> dict[str, Sport]:
+    """Ensure all sports exist in database, create if missing."""
+    result = {}
+    for sport_data in DEFAULT_SPORTS:
+        stmt = select(Sport).where(Sport.slug == sport_data["slug"])
+        existing = (await db.execute(stmt)).scalar_one_or_none()
+        if existing:
+            result[sport_data["slug"]] = existing
+        else:
+            sport = Sport(
+                id=str(uuid4()),
+                **sport_data,
+                is_active=True,
+            )
+            db.add(sport)
+            result[sport_data["slug"]] = sport
+    await db.commit()
+    return result
+
+
+async def ensure_authors(db: AsyncSession) -> dict[str, Author]:
+    """Ensure all author profiles exist in database."""
+    from app.services.ai_service import AUTHOR_PROFILES
+
+    result = {}
+    for author_data in AUTHOR_PROFILES:
+        stmt = select(Author).where(Author.slug == author_data["slug"])
+        existing = (await db.execute(stmt)).scalar_one_or_none()
+        if existing:
+            result[author_data["slug"]] = existing
+        else:
+            author = Author(
+                id=str(uuid4()),
+                name=author_data["name"],
+                slug=author_data["slug"],
+                avatar=author_data["avatar"],
+                title=author_data["title"],
+                bio=author_data["bio"],
+                specialty=author_data["specialty"],
+                social_twitter=author_data["social_twitter"],
+            )
+            db.add(author)
+            result[author_data["slug"]] = author
+    await db.commit()
+    return result
+
+
+async def fetch_and_store_matches(db: AsyncSession, sport_slug: str) -> dict:
+    """
+    Fetch matches from ESPN API and store/update in database.
+    Returns stats about what was processed.
+    """
+    from app.services.espn_service import ESPN_SPORT_MAPPING
+
+    if sport_slug not in ESPN_SPORT_MAPPING:
+        return {"sport": sport_slug, "error": "Sport not supported by ESPN API", "matches": 0}
+
+    # Ensure sports exist
+    sports = await ensure_sports(db)
+    sport = sports.get(sport_slug)
+    if not sport:
+        return {"sport": sport_slug, "error": "Sport not found in database", "matches": 0}
+
+    # Fetch from ESPN
+    data = await fetch_scoreboard(sport_slug)
+    if not data or not data.get("events"):
+        return {"sport": sport_slug, "matches": 0, "message": "No events found"}
+
+    match_count = 0
+    errors = 0
+
+    for event in data["events"]:
+        try:
+            parsed = parse_espn_event(event)
+            if not parsed:
+                continue
+
+            # Upsert home team
+            home_team = await _upsert_team(db, sport.id, parsed["home_team"])
+            away_team = await _upsert_team(db, sport.id, parsed["away_team"])
+
+            # Upsert match
+            stmt = select(Match).where(
+                and_(Match.sport_id == sport.id, or_(Match.external_id == parsed["external_id"], Match.slug == parsed["slug"]))
+            )
+            existing_match = (await db.execute(stmt)).scalar_one_or_none()
+
+            match_data = {
+                "external_id": parsed["external_id"],
+                "home_team_id": home_team.id,
+                "away_team_id": away_team.id,
+                "home_score": parsed["home_score"],
+                "away_score": parsed["away_score"],
+                "status": parsed["status"],
+                "match_date": parsed["match_date"],
+                "venue": parsed["venue"],
+                "broadcast_info": json.dumps(parsed["broadcast_info"]),
+                "match_summary": parsed.get("match_summary", ""),
+                "updated_at": datetime.utcnow(),
+            }
+
+            if existing_match:
+                # Don't overwrite scores if match is finished
+                if existing_match.status == "finished" and parsed["status"] == "finished":
+                    # Only update scores if changed, but always update broadcast_info and match_summary
+                    if existing_match.home_score != parsed["home_score"]:
+                        existing_match.home_score = parsed["home_score"]
+                        existing_match.away_score = parsed["away_score"]
+                    existing_match.broadcast_info = match_data["broadcast_info"]
+                    if match_data["match_summary"]:
+                        existing_match.match_summary = match_data["match_summary"]
+                    existing_match.updated_at = match_data["updated_at"]
+                else:
+                    for key, value in match_data.items():
+                        setattr(existing_match, key, value)
+            else:
+                new_match = Match(
+                    id=str(uuid4()),
+                    sport_id=sport.id,
+                    slug=parsed["slug"],
+                    **match_data,
+                )
+                db.add(new_match)
+
+            match_count += 1
+
+        except Exception as e:
+            logger.error(f"Error processing event: {e}")
+            errors += 1
+            continue
+
+    await db.commit()
+
+    return {
+        "sport": sport_slug,
+        "matches": match_count,
+        "errors": errors,
+    }
+
+
+async def _upsert_team(db: AsyncSession, sport_id: str, team_data: dict) -> Team:
+    """Create or update a team in the database."""
+    slug = slugify(team_data["name"])
+
+    stmt = select(Team).where(and_(Team.sport_id == sport_id, Team.slug == slug))
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+
+    if existing:
+        # Update logo if we have a real ESPN logo or existing is placeholder
+        if team_data.get("logo"):
+            if "espncdn" in team_data["logo"] or "flagcdn" in team_data["logo"] or not existing.logo or "ui-avatars" in existing.logo:
+                logo_url = team_data["logo"]
+                if ("espncdn" in logo_url or "ui-avatars" in logo_url) and "flagcdn" not in logo_url and "/api/logo" not in logo_url:
+                    import urllib.parse
+                    logo_url = f"/api/logo?url={urllib.parse.quote(logo_url)}&slug={slug}"
+                elif "/api/logo" in logo_url and "&slug=" not in logo_url:
+                    logo_url = f"{logo_url}&slug={slug}"
+                existing.logo = logo_url
+        existing.color = team_data.get("color", existing.color)
+        existing.abbreviation = team_data.get("abbreviation", existing.abbreviation)
+        return existing
+
+    logo_url = team_data.get("logo")
+    if logo_url:
+        if ("espncdn" in logo_url or "ui-avatars" in logo_url) and "flagcdn" not in logo_url and "/api/logo" not in logo_url:
+            import urllib.parse
+            logo_url = f"/api/logo?url={urllib.parse.quote(logo_url)}&slug={slug}"
+        elif "/api/logo" in logo_url and "&slug=" not in logo_url:
+            logo_url = f"{logo_url}&slug={slug}"
+
+    team = Team(
+        id=str(uuid4()),
+        sport_id=sport_id,
+        external_id=team_data.get("external_id"),
+        name=team_data["name"],
+        abbreviation=team_data.get("abbreviation", ""),
+        slug=slug,
+        city=team_data.get("short_name"),
+        logo=logo_url,
+        color=team_data.get("color"),
+    )
+    db.add(team)
+    await db.flush()
+    return team
+
+
+async def fetch_and_store_standings(db: AsyncSession, sport_slug: str) -> dict:
+    """Fetch standings from ESPN and store in database."""
+    data = await fetch_standings(sport_slug)
+    if not data:
+        return {"sport": sport_slug, "error": "Failed to fetch standings"}
+
+    sports = await ensure_sports(db)
+    sport = sports.get(sport_slug)
+    if not sport:
+        return {"sport": sport_slug, "error": "Sport not found"}
+
+    entries = data.get("children", [])
+    count = 0
+
+    for entry in entries:
+        for team_entry in entry.get("standings", {}).get("entries", []):
+            team_data = team_entry.get("team", {})
+            stats = {s["name"]: s.get("value", 0.0) for s in team_entry.get("stats", []) if "name" in s}
+
+            team_name = team_data.get("displayName", "")
+            team_slug = slugify(team_name)
+
+            # Find or create team
+            stmt = select(Team).where(and_(Team.sport_id == sport.id, Team.slug == team_slug))
+            team = (await db.execute(stmt)).scalar_one_or_none()
+
+            if not team:
+                team = Team(
+                    id=str(uuid4()),
+                    sport_id=sport.id,
+                    name=team_name,
+                    abbreviation=team_data.get("abbreviation", ""),
+                    slug=team_slug,
+                    color=f"#{team_data.get('color', '666666')}",
+                )
+                db.add(team)
+                await db.flush()
+
+            # Upsert standing
+            stmt2 = select(Standing).where(
+                and_(Standing.sport_id == sport.id, Standing.team_id == team.id)
+            )
+            standing = (await db.execute(stmt2)).scalar_one_or_none()
+
+            wins = int(stats.get("wins", 0))
+            losses = int(stats.get("losses", 0))
+            draws = int(stats.get("ties", 0))
+            pct = float(stats.get("winPercent", 0))
+
+            raw_streak = stats.get("streak")
+            if raw_streak is not None:
+                if isinstance(raw_streak, float) and raw_streak.is_integer():
+                    streak_val = str(int(raw_streak))
+                else:
+                    streak_val = str(raw_streak)
+            else:
+                streak_val = ""
+
+            if standing:
+                standing.wins = wins
+                standing.losses = losses
+                standing.draws = draws
+                standing.percentage = pct
+                standing.streak = streak_val
+            else:
+                standing = Standing(
+                    id=str(uuid4()),
+                    sport_id=sport.id,
+                    team_id=team.id,
+                    wins=wins,
+                    losses=losses,
+                    draws=draws,
+                    percentage=pct,
+                    streak=streak_val,
+                    position=count + 1,
+                )
+                db.add(standing)
+
+            count += 1
+
+    await db.commit()
+    return {"sport": sport_slug, "standings": count}
+
+
+async def fetch_all_sports_data(db: AsyncSession) -> dict:
+    """Fetch data for all ESPN-supported sports."""
+    from app.services.espn_service import ESPN_SPORT_MAPPING
+
+    results = {}
+    for sport_slug in ESPN_SPORT_MAPPING:
+        match_result = await fetch_and_store_matches(db, sport_slug)
+        results[sport_slug] = match_result
+
+        # Also try to fetch standings
+        try:
+            standings_result = await fetch_and_store_standings(db, sport_slug)
+            results[sport_slug]["standings"] = standings_result.get("standings", 0)
+        except Exception as e:
+            logger.error(f"Standings error for {sport_slug}: {e}")
+            results[sport_slug]["standings_error"] = str(e)
+
+    return results
+
+
+async def fetch_team_logos_from_thesportsdb(db: AsyncSession, sport_slug: str) -> int:
+    """Update team logos from TheSportsDB for better quality images."""
+    sports = await ensure_sports(db)
+    sport = sports.get(sport_slug)
+    if not sport:
+        return 0
+
+    stmt = select(Team).where(Team.sport_id == sport.id)
+    teams = (await db.execute(stmt)).scalars().all()
+
+    updated = 0
+    for team in teams:
+        logo_url = await thesportsdb_logo(team.name)
+        if logo_url:
+            team.logo = logo_url
+            updated += 1
+
+    await db.commit()
+    return updated
+
+
+async def update_youtube_videos(db: AsyncSession, match_id: str) -> Optional[str]:
+    """Search and cache YouTube video IDs for a match."""
+    stmt = select(Match).where(Match.id == match_id).options(
+        selectinload(Match.home_team), selectinload(Match.away_team), selectinload(Match.sport)
+    )
+    match = (await db.execute(stmt)).scalar_one_or_none()
+    if not match:
+        return None
+
+    video_ids = await search_and_cache(
+        match.home_team.name,
+        match.away_team.name,
+        match.sport.name,
+    )
+    match.youtube_video_ids = video_ids
+    await db.commit()
+    return video_ids
+
+
+async def generate_match_seo_content(
+    home_team: dict,
+    away_team: dict,
+    sport: dict,
+    venue: str,
+    match_date: datetime,
+    status: str,
+    home_score: int,
+    away_score: int,
+) -> str:
+    """Generate 200-250 word SEO content for a match page."""
+    date_str = match_date.strftime("%B %d, %Y")
+    home_city = home_team.get("city") or home_team.get("name", "").split()[0]
+    away_city = away_team.get("city") or away_team.get("name", "").split()[0]
+
+    seo = f"The {sport.get('name', '')} matchup between the {home_team.get('name', '')} and the {away_team.get('name', '')} is one that fans circle on their calendars every season. "
+    seo += f"This game, played{' at ' + venue if venue else ' in ' + home_city} on {date_str}, brings together two franchises with rich histories and passionate fanbases. "
+    seo += f"The rivalry between these {home_city} and {away_city} teams has produced some of the most memorable moments in {sport.get('name', '')} history, with each encounter adding a new chapter to an already storied competition. "
+
+    if status == "finished" and home_score is not None and away_score is not None:
+        winner = home_team.get("name", "") if home_score > away_score else away_team.get("name", "")
+        loser = away_team.get("name", "") if home_score > away_score else home_team.get("name", "")
+        seo += f"In this contest, the {winner} emerged victorious with a final score of {max(home_score, away_score)}-{min(home_score, away_score)} over the {loser}. "
+        seo += f"The result has significant implications for the standings and playoff positioning. Both teams showed the kind of intensity that defines this rivalry. "
+    elif status == "live":
+        seo += f"This game is currently in progress and the action has been thrilling. Both teams are leaving everything on the field in a contest that could go either way. Follow along for live score updates and key moments. "
+    else:
+        seo += f"As these two teams prepare to face off, anticipation is building among fans and analysts alike. Both squads have been performing well this season, and this matchup could have major implications for the playoff picture. "
+
+    seo += f"SportSurge provides comprehensive coverage of every {sport.get('name', '')} game, including live scores, post-game analysis, highlight reels, and legal streaming options for fans worldwide."
+
+    return seo
+
+
+# ==================== Query Helpers ====================
+
+async def get_matches(
+    db: AsyncSession,
+    sport_slug: str = None,
+    status: str = None,
+    limit: int = 50,
+    page: int = 1,
+) -> dict:
+    """Get matches with filtering and pagination."""
+    stmt = select(Match).options(
+        selectinload(Match.home_team),
+        selectinload(Match.away_team),
+        selectinload(Match.sport),
+    )
+
+    if sport_slug:
+        sport_stmt = select(Sport).where(Sport.slug == sport_slug)
+        sport = (await db.execute(sport_stmt)).scalar_one_or_none()
+        if sport:
+            stmt = stmt.where(Match.sport_id == sport.id)
+
+    if status:
+        stmt = stmt.where(Match.status == status)
+
+    stmt = stmt.order_by(Match.match_date.asc()).offset((page - 1) * limit).limit(limit)
+
+    matches = (await db.execute(stmt)).scalars().all()
+
+    # Count total
+    count_stmt = select(Match)
+    if sport_slug:
+        sport = (await db.execute(select(Sport).where(Sport.slug == sport_slug))).scalar_one_or_none()
+        if sport:
+            count_stmt = count_stmt.where(Match.sport_id == sport.id)
+    if status:
+        count_stmt = count_stmt.where(Match.status == status)
+
+    total = len((await db.execute(count_stmt)).scalars().all())
+
+    return {
+        "matches": [_match_to_dict(m) for m in matches],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": max(1, (total + limit - 1) // limit),
+    }
+
+
+async def get_match_by_slug(db: AsyncSession, slug: str) -> Optional[dict]:
+    """Get a single match by slug."""
+    stmt = select(Match).where(Match.slug == slug).options(
+        selectinload(Match.home_team),
+        selectinload(Match.away_team),
+        selectinload(Match.sport),
+    )
+    match = (await db.execute(stmt)).scalar_one_or_none()
+    if not match:
+        return None
+    return _match_to_dict(match)
+
+
+async def get_articles(
+    db: AsyncSession,
+    sport_slug: str = None,
+    limit: int = 12,
+    page: int = 1,
+) -> dict:
+    """Get published articles."""
+    stmt = select(Article).where(Article.is_published == True).options(
+        selectinload(Article.author),
+        selectinload(Article.sport),
+    )
+
+    if sport_slug:
+        sport = (await db.execute(select(Sport).where(Sport.slug == sport_slug))).scalar_one_or_none()
+        if sport:
+            stmt = stmt.where(Article.sport_id == sport.id)
+
+    stmt = stmt.order_by(Article.published_at.desc()).offset((page - 1) * limit).limit(limit)
+    articles = (await db.execute(stmt)).scalars().all()
+
+    return {
+        "articles": [_article_to_dict(a) for a in articles],
+    }
+
+
+async def get_standings(db: AsyncSession, sport_slug: str) -> list[dict]:
+    """Get standings for a sport."""
+    sport = (await db.execute(select(Sport).where(Sport.slug == sport_slug))).scalar_one_or_none()
+    if not sport:
+        return []
+
+    stmt = select(Standing).where(Standing.sport_id == sport.id).options(
+        selectinload(Standing.team),
+    ).order_by(Standing.position.asc())
+
+    standings = (await db.execute(stmt)).scalars().all()
+    return [_standing_to_dict(s) for s in standings]
+
+
+async def record_vote(db: AsyncSession, match_id: str, team_id: str, ip_address: str) -> dict:
+    """Record a vote for a match. One vote per IP per match."""
+    match = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one_or_none()
+    if not match:
+        return {"error": "Match not found"}
+
+    # Check existing vote
+    existing = (await db.execute(
+        select(Vote).where(and_(Vote.match_id == match_id, Vote.ip_address == ip_address))
+    )).scalar_one_or_none()
+
+    if existing:
+        total = match.home_votes + match.away_votes
+        return {
+            "message": "Already voted",
+            "home_votes": match.home_votes,
+            "away_votes": match.away_votes,
+            "home_percentage": round((match.home_votes / total) * 100) if total > 0 else 50,
+            "away_percentage": round((match.away_votes / total) * 100) if total > 0 else 50,
+            "already_voted": True,
+        }
+
+    # Record vote
+    vote = Vote(id=str(uuid4()), match_id=match_id, team_id=team_id, ip_address=ip_address)
+    db.add(vote)
+
+    is_home = team_id == match.home_team_id
+    if is_home:
+        match.home_votes += 1
+    else:
+        match.away_votes += 1
+
+    await db.commit()
+
+    total = match.home_votes + match.away_votes
+    return {
+        "success": True,
+        "home_votes": match.home_votes,
+        "away_votes": match.away_votes,
+        "home_percentage": round((match.home_votes / total) * 100) if total > 0 else 50,
+        "away_percentage": round((match.away_votes / total) * 100) if total > 0 else 50,
+        "already_voted": False,
+    }
+
+
+# ==================== Serialization Helpers ====================
+
+def _match_to_dict(match: Match) -> dict:
+    """Convert a Match ORM object to a dict for API response."""
+    broadcast_info = None
+    if match.broadcast_info:
+        try:
+            broadcast_info = json.loads(match.broadcast_info)
+        except:
+            broadcast_info = match.broadcast_info
+
+    youtube_videos = []
+    if match.youtube_video_ids:
+        for vid in match.youtube_video_ids.split(","):
+            if vid.strip():
+                youtube_videos.append({
+                    "video_id": vid.strip(),
+                    "embed_url": f"https://www.youtube.com/embed/{vid.strip()}",
+                    "watch_url": f"https://www.youtube.com/watch?v={vid.strip()}",
+                })
+
+    return {
+        "id": match.id,
+        "slug": match.slug,
+        "status": match.status,
+        "homeScore": match.home_score,
+        "awayScore": match.away_score,
+        "matchDate": match.match_date.isoformat() if match.match_date else None,
+        "venue": match.venue,
+        "broadcastInfo": broadcast_info,
+        "matchSummary": match.match_summary,
+        "homeVotes": match.home_votes,
+        "awayVotes": match.away_votes,
+        "seoContent": match.seo_content,
+        "youtubeVideos": youtube_videos,
+        "homeTeam": _team_to_dict(match.home_team) if match.home_team else None,
+        "awayTeam": _team_to_dict(match.away_team) if match.away_team else None,
+        "sport": _sport_to_dict(match.sport) if match.sport else None,
+    }
+
+
+def _team_to_dict(team: Team) -> dict:
+    return {
+        "id": team.id,
+        "name": team.name,
+        "abbreviation": team.abbreviation,
+        "slug": team.slug,
+        "city": team.city,
+        "logo": team.logo,
+        "color": team.color,
+    }
+
+
+def _sport_to_dict(sport: Sport) -> dict:
+    return {
+        "id": sport.id,
+        "slug": sport.slug,
+        "name": sport.name,
+        "icon": sport.icon,
+        "color": sport.color,
+    }
+
+
+def _article_to_dict(article: Article) -> dict:
+    return {
+        "id": article.id,
+        "title": article.title,
+        "slug": article.slug,
+        "excerpt": article.excerpt,
+        "content": article.content,
+        "featuredImage": article.featured_image,
+        "category": article.category,
+        "tags": article.tags,
+        "isPublished": article.is_published,
+        "publishedAt": article.published_at.isoformat() if article.published_at else None,
+        "metaTitle": article.meta_title,
+        "metaDescription": article.meta_description,
+        "metaTags": article.meta_tags,
+        "author": {
+            "id": article.author.id,
+            "name": article.author.name,
+            "slug": article.author.slug,
+            "avatar": article.author.avatar,
+            "title": article.author.title,
+        } if article.author else None,
+        "sport": _sport_to_dict(article.sport) if article.sport else None,
+    }
+
+
+def _standing_to_dict(standing: Standing) -> dict:
+    return {
+        "id": standing.id,
+        "wins": standing.wins,
+        "losses": standing.losses,
+        "draws": standing.draws,
+        "position": standing.position,
+        "percentage": standing.percentage,
+        "streak": standing.streak,
+        "team": _team_to_dict(standing.team) if standing.team else None,
+    }
