@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import path from "path";
 
 const nextConfig: NextConfig = {
   experimental: {
@@ -16,9 +15,6 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'api.dicebear.com' },
       { protocol: 'https', hostname: 'a.espncdn.com' },
     ],
-  },
-  turbopack: {
-    root: path.resolve(process.cwd(), ".."),
   },
 };
 
