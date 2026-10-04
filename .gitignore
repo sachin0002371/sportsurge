@@ -1,0 +1,40 @@
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env*.local
+*.env
+
+# Frontend (Next.js & Node)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.open-next/
+frontend/.wrangler/
+frontend/.vercel
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/next-env.d.ts
+frontend/*.tsbuildinfo
+
+# Backend (Python & VirtualEnv)
+backend/venv/
+backend/env/
+backend/__pycache__/
+backend/*/__pycache__/
+backend/*/*/__pycache__/
+backend/*.db
+backend/*.sqlite
+backend/sportsurge.db
+*.pyc
+*.pyo
+
+# Build & Logs
+*.log
+dist/
+build/
