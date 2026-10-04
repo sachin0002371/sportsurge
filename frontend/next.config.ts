@@ -5,7 +5,6 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react'],
   },
-  serverExternalPackages: ['@prisma/client', 'prisma'],
   typescript: {
     ignoreBuildErrors: true,
   },
