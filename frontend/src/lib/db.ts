@@ -5,7 +5,11 @@
 import { neon } from '@neondatabase/serverless';
 
 function getConnectionString(): string {
-  return process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_CM8kpNeK0OgS@ep-fancy-meadow-ap0hajz0-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require';
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error('DATABASE_URL environment variable is missing.');
+  }
+  return url;
 }
 
 function getSql() {
