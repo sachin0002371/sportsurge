@@ -336,6 +336,21 @@ const articleDb = {
 
     const rows = await executeQueryWithCache(query, params, 120000); // 2 min cache
     return rows[0]?.count ?? 0;
+  },
+
+  async getCategoryCounts() {
+    const query = `SELECT category, COUNT(*)::int as count FROM articles WHERE is_published = true GROUP BY category`;
+    const rows = await executeQueryWithCache(query, [], 300000); // 5 min cache
+    const counts: Record<string, number> = { all: 0 };
+    let total = 0;
+    for (const r of rows) {
+      if (r.category) {
+        counts[r.category] = Number(r.count);
+        total += Number(r.count);
+      }
+    }
+    counts.all = total;
+    return counts;
   }
 };
 

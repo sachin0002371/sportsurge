@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Newspaper } from 'lucide-react';
 import AdPlacement from '@/components/AdPlacement';
 
-export const revalidate = 60; // Cache news page for 1 minute
+export const revalidate = 900; // Cache news page for 15 minutes at Edge
 
 export const metadata = {
   title: 'Latest Sports News & Expert Analysis - Sportsurge Official',
@@ -33,8 +33,8 @@ export default async function NewsPage({ searchParams }: PageProps) {
     filter.category = selectedCategory;
   }
 
-  // Fetch articles, total count, and category counts
-  const [articles, totalArticles, allPublishedArticles] = await Promise.all([
+  // Fetch articles, total count, and category counts using optimized SQL aggregation
+  const [articles, totalArticles, categoryCounts] = await Promise.all([
     db.article.findMany({
       where: filter,
       include: { author: true, sport: true },
@@ -45,17 +45,8 @@ export default async function NewsPage({ searchParams }: PageProps) {
     db.article.count({
       where: filter,
     }),
-    db.article.findMany({
-      where: { isPublished: true },
-      select: { category: true },
-    }),
+    db.article.getCategoryCounts(),
   ]);
-
-  // Calculate counts for categories
-  const categoryCounts: Record<string, number> = { all: allPublishedArticles.length };
-  allPublishedArticles.forEach(art => {
-    categoryCounts[art.category] = (categoryCounts[art.category] || 0) + 1;
-  });
 
   const totalPages = Math.ceil(totalArticles / ITEMS_PER_PAGE);
 
