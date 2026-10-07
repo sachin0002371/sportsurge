@@ -15,6 +15,17 @@ function getSql() {
 
 function formatImageUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
+  if (url.includes('/api/logo?url=')) {
+    try {
+      const rawUrl = url.split('url=')[1]?.split('&')[0];
+      if (rawUrl) {
+        const decoded = decodeURIComponent(rawUrl);
+        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+          return decoded;
+        }
+      }
+    } catch (e) {}
+  }
   const backendUrl = process.env.BACKEND_URL || 'https://backend.sportsurgeplay.com';
   if (url.includes('backend.sportsurgeplay.com')) {
     return url.replace('https://backend.sportsurgeplay.com', backendUrl);
@@ -24,7 +35,7 @@ function formatImageUrl(url: string | null | undefined): string | undefined {
 
 function buildWhereCondition(tablePrefix: string, dbColumn: string, value: any, params: any[]): string {
   if (value === undefined || value === null) return '';
-  const col = `${tablePrefix}.${dbColumn}`;
+  const col = tablePrefix ? `${tablePrefix}.${dbColumn}` : dbColumn;
   if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
     let sqlSnippet = '';
     if (Array.isArray(value.in) && value.in.length > 0) {
