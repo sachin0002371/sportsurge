@@ -81,6 +81,18 @@ function formatImageUrl(url: string | null | undefined): string | undefined {
       }
     } catch (e) {}
   }
+  // Unwrap article-image proxy URLs to load directly from CDN (ESPN/Pexels)
+  if (url.includes('/api/v1/article-image/') && url.includes('url=')) {
+    try {
+      const rawUrl = url.split('url=')[1]?.split('&')[0];
+      if (rawUrl) {
+        const decoded = decodeURIComponent(rawUrl);
+        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+          return decoded;
+        }
+      }
+    } catch (e) {}
+  }
   const backendUrl = process.env.BACKEND_URL || 'https://backend.sportsurgeplay.com';
   if (url.includes('backend.sportsurgeplay.com')) {
     return url.replace('https://backend.sportsurgeplay.com', backendUrl);

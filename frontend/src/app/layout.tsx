@@ -47,19 +47,20 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Google AdSense - using plain script tag to avoid data-nscript attribute issue */}
-        <script
-          async
+        {/* Google AdSense - defer execution so browser tab finishes loading instantly */}
+        <Script
+          id="google-adsense"
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9074769053982810"
+          strategy="lazyOnload"
           crossOrigin="anonymous"
         />
 
-        {/* Google Analytics */}
+        {/* Google Analytics - lazyOnload */}
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-KKD0ZD105B"
-          strategy="afterInteractive"
+          strategy="lazyOnload"
         />
-        <Script id="google-analytics" strategy="afterInteractive">
+        <Script id="google-analytics" strategy="lazyOnload">
           {`
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
