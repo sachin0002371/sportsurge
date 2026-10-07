@@ -21,18 +21,19 @@ export async function generateStaticParams() {
   }
 }
 
+const SPORT_NAMES_MAP: Record<string, string> = {
+  nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+  ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+  boxing: 'Boxing', cricket: 'Cricket',
+};
+
 export async function generateMetadata({ params }: StandingsPageProps) {
   const { sport: sportSlug } = await params;
-  try {
-    const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-    const name = sport?.name || sportSlug.toUpperCase();
-    return {
-      title: `${name} Standings - Sportsurge Official`,
-      description: `Official ${name} standings, team records, win-loss percentages, and streaks. Updated live on Sportsurge Official.`,
-    };
-  } catch (error) {
-    return { title: 'Standings - Sportsurge Official' };
-  }
+  const name = SPORT_NAMES_MAP[sportSlug.toLowerCase()] || sportSlug.toUpperCase();
+  return {
+    title: `${name} Standings - Sportsurge Official`,
+    description: `Official ${name} standings, team records, win-loss percentages, and streaks. Updated live on Sportsurge Official.`,
+  };
 }
 
 export default async function StandingsPage({ params }: StandingsPageProps) {

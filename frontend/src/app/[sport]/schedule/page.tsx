@@ -21,18 +21,19 @@ export async function generateStaticParams() {
   }
 }
 
+const SPORT_NAMES_MAP: Record<string, string> = {
+  nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+  ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+  boxing: 'Boxing', cricket: 'Cricket',
+};
+
 export async function generateMetadata({ params }: SchedulePageProps) {
   const { sport: sportSlug } = await params;
-  try {
-    const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-    const name = sport?.name || sportSlug.toUpperCase();
-    return {
-      title: `${name} Schedule - Sportsurge Official`,
-      description: `Complete ${name} schedule with upcoming matches, dates, times, and broadcast info. Never miss a game with Sportsurge Official.`,
-    };
-  } catch (error) {
-    return { title: 'Schedule - Sportsurge Official' };
-  }
+  const name = SPORT_NAMES_MAP[sportSlug.toLowerCase()] || sportSlug.toUpperCase();
+  return {
+    title: `${name} Schedule - Sportsurge Official`,
+    description: `Complete ${name} schedule with upcoming matches, dates, times, and broadcast info. Never miss a game with Sportsurge Official.`,
+  };
 }
 
 export default async function SchedulePage({ params }: SchedulePageProps) {

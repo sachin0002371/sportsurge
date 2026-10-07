@@ -24,43 +24,35 @@ export async function generateStaticParams() {
   }
 }
 
+const SPORT_NAMES_MAP: Record<string, string> = {
+  nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+  ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+  boxing: 'Boxing', cricket: 'Cricket',
+};
+
 export async function generateMetadata({ params }: SportPageProps) {
   const { sport: sportSlug } = await params;
-  try {
-    const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-    if (!sport) {
-      const sportNames: Record<string, string> = {
-        nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
-        ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
-        boxing: 'Boxing', cricket: 'Cricket',
-      };
-      const name = sportNames[sportSlug] || sportSlug.toUpperCase();
-      return { title: `Sportsurge Official - ${name} Live Scores, Schedule & News` };
-    }
+  const name = SPORT_NAMES_MAP[sportSlug.toLowerCase()] || sportSlug.toUpperCase();
+  const description = `Get the latest ${name} live scores, match schedules, standings, and news. Complete coverage of ${name} on Sportsurge Official.`;
 
-    const description = `Get the latest ${sport.name} live scores, match schedules, standings, and news. Complete coverage of ${sport.name} on Sportsurge Official.`;
-
-    return {
-      title: `Sportsurge Official - ${sport.name} Live Scores, Schedule & News`,
+  return {
+    title: `Sportsurge Official - ${name} Live Scores, Schedule & News`,
+    description: description.substring(0, 160),
+    openGraph: {
+      title: `Sportsurge Official - ${name} Live Scores, Schedule & News`,
       description: description.substring(0, 160),
-      openGraph: {
-        title: `Sportsurge Official - ${sport.name} Live Scores & News`,
-        description: description.substring(0, 160),
-        type: 'website',
-        siteName: 'Sportsurge Official',
-      },
-      twitter: {
-        card: 'summary_large_image',
-        title: `Sportsurge Official - ${sport.name}`,
-        description: description.substring(0, 160),
-      },
-      other: {
-        'robots': 'max-image-preview:large',
-      },
-    };
-  } catch (err) {
-    return { title: 'Sportsurge Official' };
-  }
+      type: 'website',
+      siteName: 'Sportsurge Official',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `Sportsurge Official - ${name}`,
+      description: description.substring(0, 160),
+    },
+    other: {
+      'robots': 'max-image-preview:large',
+    },
+  };
 }
 
 export default async function SportPage({ params }: SportPageProps) {

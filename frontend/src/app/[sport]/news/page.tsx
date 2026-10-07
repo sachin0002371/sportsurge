@@ -20,24 +20,25 @@ export async function generateStaticParams() {
   }
 }
 
+const SPORT_NAMES_MAP: Record<string, string> = {
+  nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
+  ncaaf: 'NCAAF', ncaab: 'NCAAB', f1: 'F1', mma: 'MMA',
+  boxing: 'Boxing', cricket: 'Cricket',
+};
+
 export async function generateMetadata({ params }: NewsPageProps) {
   const { sport: sportSlug } = await params;
-  try {
-    const sport = await db.sport.findUnique({ where: { slug: sportSlug } });
-    const name = sport?.name || sportSlug.toUpperCase();
-    return {
-      title: `${name} News & Articles - Sportsurge Official`,
-      description: `Latest ${name} news, analysis, previews, recaps, and expert opinion. Stay updated with Sportsurge Official's ${name} coverage.`,
-      openGraph: {
-        title: `${name} News - Sportsurge Official`,
-        description: `Latest ${name} news, analysis, and expert opinion`,
-        type: 'website',
-        siteName: 'Sportsurge Official',
-      },
-    };
-  } catch (error) {
-    return { title: 'News - Sportsurge Official' };
-  }
+  const name = SPORT_NAMES_MAP[sportSlug.toLowerCase()] || sportSlug.toUpperCase();
+  return {
+    title: `${name} News & Articles - Sportsurge Official`,
+    description: `Latest ${name} news, analysis, previews, recaps, and expert opinion. Stay updated with Sportsurge Official's ${name} coverage.`,
+    openGraph: {
+      title: `${name} News - Sportsurge Official`,
+      description: `Latest ${name} news, analysis, and expert opinion`,
+      type: 'website',
+      siteName: 'Sportsurge Official',
+    },
+  };
 }
 
 const categories = ['news', 'analysis', 'preview', 'recap', 'opinion'];
