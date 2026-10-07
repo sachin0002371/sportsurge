@@ -34,13 +34,20 @@ export async function GET(request: NextRequest) {
 
     const total = await db.match.count({ where });
 
-    return NextResponse.json({
-      matches,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return NextResponse.json(
+      {
+        matches,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=600',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('Matches API error:', error);
     return NextResponse.json(

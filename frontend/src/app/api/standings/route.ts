@@ -22,7 +22,14 @@ export async function GET(request: NextRequest) {
       orderBy: [{ sportId: 'asc' }, { position: 'asc' }],
     });
 
-    return NextResponse.json({ standings });
+    return NextResponse.json(
+      { standings },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400',
+        },
+      }
+    );
   } catch (error) {
     console.error('Standings API error:', error);
     return NextResponse.json({ error: 'Failed to fetch standings' }, { status: 500 });

@@ -33,13 +33,20 @@ export async function GET(request: NextRequest) {
 
     const total = await db.article.count({ where });
 
-    return NextResponse.json({
-      articles,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return NextResponse.json(
+      {
+        articles,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=1800, s-maxage=86400, stale-while-revalidate=86400',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('Articles API error:', error);
     return NextResponse.json(
