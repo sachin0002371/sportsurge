@@ -15,11 +15,42 @@ function getSql() {
 
 function formatImageUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
-  const backendUrl = process.env.BACKEND_URL || 'https://sportsurgebackend-sportsurgebackend-krhn-babfc1-91-98-46-3.sslip.io';
+  const backendUrl = process.env.BACKEND_URL || 'https://backend.sportsurgeplay.com';
   if (url.includes('backend.sportsurgeplay.com')) {
     return url.replace('https://backend.sportsurgeplay.com', backendUrl);
   }
   return url;
+}
+
+function buildWhereCondition(tablePrefix: string, dbColumn: string, value: any, params: any[]): string {
+  if (value === undefined || value === null) return '';
+  const col = `${tablePrefix}.${dbColumn}`;
+  if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+    let sqlSnippet = '';
+    if (Array.isArray(value.in) && value.in.length > 0) {
+      const placeholders = value.in.map((v: any) => {
+        params.push(v);
+        return `$${params.length}`;
+      }).join(', ');
+      sqlSnippet += ` AND ${col} IN (${placeholders})`;
+    }
+    if (value.not !== undefined) {
+      params.push(value.not);
+      sqlSnippet += ` AND ${col} != $${params.length}`;
+    }
+    if (value.gte !== undefined) {
+      params.push(value.gte);
+      sqlSnippet += ` AND ${col} >= $${params.length}`;
+    }
+    if (value.lte !== undefined) {
+      params.push(value.lte);
+      sqlSnippet += ` AND ${col} <= $${params.length}`;
+    }
+    return sqlSnippet;
+  } else {
+    params.push(value);
+    return ` AND ${col} = $${params.length}`;
+  }
 }
 
 // Data Mappers (snake_case DB -> camelCase Prisma object)
@@ -160,10 +191,7 @@ const sportDb = {
     const sql = getSql();
     let query = `SELECT id, slug, name, icon, color, is_active, sort_order FROM sports WHERE is_active = true`;
     const params: any[] = [];
-    if (args.where?.slug) {
-      params.push(args.where.slug);
-      query += ` AND slug = $${params.length}`;
-    }
+    if (args.where?.slug) query += buildWhereCondition('', 'slug', args.where.slug, params);
     query += ` ORDER BY sort_order ASC, name ASC`;
     if (args.take) {
       params.push(args.take);
@@ -208,26 +236,12 @@ const articleDb = {
       LEFT JOIN authors au ON a.author_id = au.id
       WHERE 1=1
     `;
-    if (args.where?.isPublished !== undefined) {
-      params.push(args.where.isPublished);
-      query += ` AND a.is_published = $${params.length}`;
-    }
-    if (args.where?.sportId) {
-      params.push(args.where.sportId);
-      query += ` AND a.sport_id = $${params.length}`;
-    }
-    if (args.where?.category) {
-      params.push(args.where.category);
-      query += ` AND a.category = $${params.length}`;
-    }
-    if (args.where?.slug) {
-      params.push(args.where.slug);
-      query += ` AND a.slug = $${params.length}`;
-    }
-    if (args.where?.authorId) {
-      params.push(args.where.authorId);
-      query += ` AND a.author_id = $${params.length}`;
-    }
+    if (args.where?.isPublished !== undefined) query += buildWhereCondition('a', 'is_published', args.where.isPublished, params);
+    if (args.where?.sportId) query += buildWhereCondition('a', 'sport_id', args.where.sportId, params);
+    if (args.where?.category) query += buildWhereCondition('a', 'category', args.where.category, params);
+    if (args.where?.slug) query += buildWhereCondition('a', 'slug', args.where.slug, params);
+    if (args.where?.authorId) query += buildWhereCondition('a', 'author_id', args.where.authorId, params);
+
     query += ` ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC`;
     if (args.take) {
       params.push(args.take);
@@ -254,18 +268,10 @@ const articleDb = {
     const sql = getSql();
     const params: any[] = [];
     let query = `SELECT COUNT(*)::int as count FROM articles a WHERE 1=1`;
-    if (args.where?.isPublished !== undefined) {
-      params.push(args.where.isPublished);
-      query += ` AND a.is_published = $${params.length}`;
-    }
-    if (args.where?.sportId) {
-      params.push(args.where.sportId);
-      query += ` AND a.sport_id = $${params.length}`;
-    }
-    if (args.where?.category) {
-      params.push(args.where.category);
-      query += ` AND a.category = $${params.length}`;
-    }
+    if (args.where?.isPublished !== undefined) query += buildWhereCondition('a', 'is_published', args.where.isPublished, params);
+    if (args.where?.sportId) query += buildWhereCondition('a', 'sport_id', args.where.sportId, params);
+    if (args.where?.category) query += buildWhereCondition('a', 'category', args.where.category, params);
+
     const rows = await sql.query(query, params);
     return rows[0]?.count ?? 0;
   }
@@ -286,30 +292,12 @@ const matchDb = {
       LEFT JOIN teams at ON m.away_team_id = at.id
       WHERE 1=1
     `;
-    if (args.where?.sportId) {
-      params.push(args.where.sportId);
-      query += ` AND m.sport_id = $${params.length}`;
-    }
-    if (args.where?.status) {
-      params.push(args.where.status);
-      query += ` AND m.status = $${params.length}`;
-    }
-    if (args.where?.slug) {
-      params.push(args.where.slug);
-      query += ` AND m.slug = $${params.length}`;
-    }
-    if (args.where?.id) {
-      params.push(args.where.id);
-      query += ` AND m.id = $${params.length}`;
-    }
-    if (args.where?.matchDate?.gte) {
-      params.push(args.where.matchDate.gte);
-      query += ` AND m.match_date >= $${params.length}`;
-    }
-    if (args.where?.matchDate?.lte) {
-      params.push(args.where.matchDate.lte);
-      query += ` AND m.match_date <= $${params.length}`;
-    }
+    if (args.where?.sportId) query += buildWhereCondition('m', 'sport_id', args.where.sportId, params);
+    if (args.where?.status) query += buildWhereCondition('m', 'status', args.where.status, params);
+    if (args.where?.slug) query += buildWhereCondition('m', 'slug', args.where.slug, params);
+    if (args.where?.id) query += buildWhereCondition('m', 'id', args.where.id, params);
+    if (args.where?.matchDate) query += buildWhereCondition('m', 'match_date', args.where.matchDate, params);
+
     query += ` ORDER BY m.match_date ASC`;
     if (args.take) {
       params.push(args.take);
@@ -336,14 +324,9 @@ const matchDb = {
     const sql = getSql();
     const params: any[] = [];
     let query = `SELECT COUNT(*)::int as count FROM matches m WHERE 1=1`;
-    if (args.where?.sportId) {
-      params.push(args.where.sportId);
-      query += ` AND m.sport_id = $${params.length}`;
-    }
-    if (args.where?.status) {
-      params.push(args.where.status);
-      query += ` AND m.status = $${params.length}`;
-    }
+    if (args.where?.sportId) query += buildWhereCondition('m', 'sport_id', args.where.sportId, params);
+    if (args.where?.status) query += buildWhereCondition('m', 'status', args.where.status, params);
+
     const rows = await sql.query(query, params);
     return rows[0]?.count ?? 0;
   },
@@ -383,10 +366,8 @@ const standingDb = {
       LEFT JOIN teams t ON st.team_id = t.id
       WHERE 1=1
     `;
-    if (args.where?.sportId) {
-      params.push(args.where.sportId);
-      query += ` AND st.sport_id = $${params.length}`;
-    }
+    if (args.where?.sportId) query += buildWhereCondition('st', 'sport_id', args.where.sportId, params);
+
     query += ` ORDER BY st.position ASC, st.wins DESC`;
     if (args.take) {
       params.push(args.take);
@@ -402,14 +383,9 @@ const authorDb = {
     const sql = getSql();
     const params: any[] = [];
     let query = `SELECT * FROM authors WHERE 1=1`;
-    if (args.where?.slug) {
-      params.push(args.where.slug);
-      query += ` AND slug = $${params.length}`;
-    }
-    if (args.where?.id) {
-      params.push(args.where.id);
-      query += ` AND id = $${params.length}`;
-    }
+    if (args.where?.slug) query += buildWhereCondition('', 'slug', args.where.slug, params);
+    if (args.where?.id) query += buildWhereCondition('', 'id', args.where.id, params);
+
     query += ` ORDER BY name ASC`;
     const rows = await sql.query(query, params);
     const authors = rows.map(mapAuthor);
