@@ -21,6 +21,9 @@ export default function NavigationProgress() {
 
   // Intercept click on internal links for instant visual feedback
   useEffect(() => {
+    let animTimer1: any = null;
+    let animTimer2: any = null;
+
     const handleAnchorClick = (event: MouseEvent) => {
       const target = (event.target as HTMLElement).closest('a');
       if (!target) return;
@@ -44,9 +47,12 @@ export default function NavigationProgress() {
           setLoading(true);
           setProgress(25);
 
+          if (animTimer1) clearTimeout(animTimer1);
+          if (animTimer2) clearTimeout(animTimer2);
+
           // Animate progress smoothly
-          setTimeout(() => setProgress(65), 100);
-          setTimeout(() => setProgress(85), 300);
+          animTimer1 = setTimeout(() => setProgress(65), 100);
+          animTimer2 = setTimeout(() => setProgress(85), 300);
         }
       }
     };
@@ -54,6 +60,8 @@ export default function NavigationProgress() {
     document.addEventListener('click', handleAnchorClick, { capture: true });
     return () => {
       document.removeEventListener('click', handleAnchorClick, { capture: true });
+      if (animTimer1) clearTimeout(animTimer1);
+      if (animTimer2) clearTimeout(animTimer2);
     };
   }, []);
 
