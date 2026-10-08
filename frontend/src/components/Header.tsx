@@ -30,7 +30,7 @@ export default function Header() {
       <div className="bg-gradient-to-r from-[#0f172a] via-[#1e1b4b] to-[#312e81] text-white shadow-xl border-b border-indigo-900/50">
         <div className="max-w-7xl mx-auto px-4 h-[60px] flex items-center justify-between">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 font-bold text-lg tracking-tight text-white group">
+          <Link href="/" prefetch={true} className="flex items-center gap-2 font-bold text-lg tracking-tight text-white group">
             <img src="/favicon.svg" className="w-7 h-7 drop-shadow-[0_2px_8px_rgba(255,215,0,0.5)] group-hover:scale-110 transition-transform duration-200" alt="SportSurge" />
             <span className="text-xl font-black tracking-wider bg-gradient-to-r from-white via-amber-100 to-amber-300 bg-clip-text text-transparent">SportSurge</span>
           </Link>
