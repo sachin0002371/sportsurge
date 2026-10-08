@@ -152,7 +152,7 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
 
   // 2. Fast-path: If local SQLite database is available, query locally in 0.1ms
   const sqliteRows = querySqlite(queryStr, params);
-  if (Array.isArray(sqliteRows) && sqliteRows.length > 0) {
+  if (Array.isArray(sqliteRows)) {
     if (dbCache.size > 1000) dbCache.clear();
     dbCache.set(cacheKey, { data: sqliteRows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
     return sqliteRows;
