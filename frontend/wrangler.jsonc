@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "sportsurge",
   "main": ".open-next/worker.js",
-  "compatibility_date": "2025-01-01",
+  "compatibility_date": "2025-04-01",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": ".open-next/assets",
@@ -15,6 +15,7 @@
     "enabled": true
   },
   "vars": {
+    "DATABASE_URL": "postgresql://neondb_owner:npg_b0dgB9izZeHx@ep-billowing-paper-asl1j3hb-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require",
     "BACKEND_URL": "https://sportsurgebackend-sportsurgebackend-krhn-babfc1-91-98-46-3.sslip.io"
   }
 }

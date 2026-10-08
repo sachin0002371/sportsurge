@@ -26,13 +26,18 @@ const AD_SLOTS: Record<string, string> = {
 
 export default function AdPlacement({ type = 'horizontal', className = '', slotId = '1991768591', format = 'auto' }: AdPlacementProps) {
   useEffect(() => {
-    try {
-      // @ts-ignore
-      (window.adsbygoogle = window.adsbygoogle || []).push({});
-    } catch (err) {
-      console.error('AdSense error:', err);
-    }
-  }, []);
+    const timer = setTimeout(() => {
+      try {
+        if (typeof window !== 'undefined') {
+          // @ts-ignore
+          (window.adsbygoogle = window.adsbygoogle || []).push({});
+        }
+      } catch (err) {
+        // Silently ignore already-filled ad slots on client navigation
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [slotId]);
 
   const actualSlot = AD_SLOTS[slotId] || slotId;
 

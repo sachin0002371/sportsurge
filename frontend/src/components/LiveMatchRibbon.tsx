@@ -149,6 +149,7 @@ export default function LiveMatchRibbon({ matches }: LiveMatchRibbonProps) {
                 <Link
                   key={match.id}
                   href={`/${match.sport.slug}/match/${match.slug}`}
+                  prefetch={true}
                   className="flex-shrink-0 w-72"
                 >
                   <div className="bg-white rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-600 transition-all duration-200 p-3 group cursor-pointer border border-transparent" style={{ boxShadow: 'rgba(34,34,38,0.16) 0px 1px 4px' }}>

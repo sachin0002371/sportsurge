@@ -31,78 +31,168 @@ function getSql() {
   return cachedSql;
 }
 
-// In-Memory Edge Cache, Deduplication & Stale-While-Revalidate
+let sqliteDb: any = null;
+function getSqlite() {
+  if (sqliteDb) return sqliteDb;
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const candidates = [
+      path.join(process.cwd(), 'dev.db'),
+      path.join(process.cwd(), 'frontend', 'dev.db'),
+      path.join(process.cwd(), '..', 'frontend', 'dev.db'),
+      path.join(process.cwd(), 'prisma', 'dev.db'),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) {
+        const { DatabaseSync } = require('node:sqlite');
+        sqliteDb = new DatabaseSync(c);
+        return sqliteDb;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+function querySqlite(queryStr: string, params: any[]): any[] | null {
+  const sdb = getSqlite();
+  if (!sdb) return null;
+  try {
+    let sqlQuery = queryStr
+      .replace(/json_build_object/g, 'json_object')
+      .replace(/NULLS LAST/gi, '')
+      .replace(/::int/gi, '')
+      .replace(/::text\[\]/gi, '');
+    
+    sqlQuery = sqlQuery.replace(/\$(\d+)/g, '?');
+
+    const flatParams: any[] = [];
+    for (const p of params) {
+      if (typeof p === 'boolean') {
+        flatParams.push(p ? 1 : 0);
+      } else {
+        flatParams.push(p);
+      }
+    }
+
+    const rows = sdb.prepare(sqlQuery).all(...flatParams);
+    return rows;
+  } catch (err) {
+    console.warn('SQLite fallback query error:', err);
+    return null;
+  }
+}
+
+// In-Memory Edge Cache, Deduplication & Stale-While-Revalidate (SWR)
 interface CacheEntry {
   data: any[];
   expiresAt: number;
+  updatedAt: number;
 }
 
 const dbCache = new Map<string, CacheEntry>();
 const inFlightQueries = new Map<string, Promise<any[]>>();
 
-async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: number = 180000): Promise<any[]> {
+async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: number = 300000): Promise<any[]> {
   const cacheKey = `${queryStr}::${JSON.stringify(params)}`;
   const now = Date.now();
   const cached = dbCache.get(cacheKey);
 
-  // Instant response if fresh cache exists
-  if (cached && cached.expiresAt > now) {
+  // 1. Instant response if fresh cache exists (0ms latency)
+  if (cached && cached.expiresAt > now && Array.isArray(cached.data) && cached.data.length > 0) {
     return cached.data;
   }
 
-  // Deduplicate concurrent in-flight requests for the same query to prevent DB hammering
+  // 2. True Stale-While-Revalidate (SWR):
+  // If we have cached data (even if expired), return it IMMEDIATELY to the user so page loads in 0ms,
+  // and trigger a silent background fetch to update the cache for subsequent requests.
+  if (cached && Array.isArray(cached.data) && cached.data.length > 0) {
+    if (!inFlightQueries.has(cacheKey)) {
+      const backgroundRevalidate = (async () => {
+        try {
+          const sql = getSql();
+          const rows = await Promise.race([
+            sql.query(queryStr, params),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Background query timeout')), 10000))
+          ]);
+          if (Array.isArray(rows) && rows.length > 0) {
+            dbCache.set(cacheKey, { data: rows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
+          }
+        } catch (e) {
+          // Silently retain existing cache
+        } finally {
+          inFlightQueries.delete(cacheKey);
+        }
+      })();
+      inFlightQueries.set(cacheKey, backgroundRevalidate as any);
+    }
+    return cached.data;
+  }
+
+  // 3. Deduplicate concurrent in-flight requests for the same query to prevent DB hammering
   if (inFlightQueries.has(cacheKey)) {
     try {
       const rows = await inFlightQueries.get(cacheKey)!;
       if (Array.isArray(rows) && rows.length > 0) return rows;
     } catch {
-      // Fall through to cache/fallback
+      // Fall through to query execution
     }
-    if (cached && Array.isArray(cached.data)) return cached.data;
+    if (cached && Array.isArray(cached.data) && cached.data.length > 0) return cached.data;
   }
 
   const queryPromise = (async () => {
-    const sql = getSql();
     let rows: any = null;
     let lastError: any = null;
 
-    // Attempt 1: 6500ms timeout (allows sleeping Neon compute to spin up without premature abort)
-    // Attempt 2: 3500ms timeout
-    const timeouts = [6500, 3500];
-    for (let attempt = 0; attempt < timeouts.length; attempt++) {
-      try {
-        rows = await Promise.race([
-          sql.query(queryStr, params),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Neon query timeout (${timeouts[attempt]}ms)`)), timeouts[attempt])
-          ),
-        ]);
-        if (Array.isArray(rows)) break;
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`Neon DB query attempt ${attempt + 1} failed:`, err?.message || err);
-        if (attempt < timeouts.length - 1) {
-          await new Promise(res => setTimeout(res, 200));
+    // Fast-path: If local SQLite database is available, query locally in 0.1ms
+    const sqliteRows = querySqlite(queryStr, params);
+    if (Array.isArray(sqliteRows) && sqliteRows.length > 0) {
+      if (dbCache.size > 1000) dbCache.clear();
+      dbCache.set(cacheKey, { data: sqliteRows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
+      return sqliteRows;
+    }
+
+    try {
+      const sql = getSql();
+      const timeouts = [8000, 4000];
+      for (let attempt = 0; attempt < timeouts.length; attempt++) {
+        try {
+          rows = await Promise.race([
+            sql.query(queryStr, params),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error(`Neon query timeout (${timeouts[attempt]}ms)`)), timeouts[attempt])
+            ),
+          ]);
+          if (Array.isArray(rows)) break;
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`Neon DB query attempt ${attempt + 1} failed:`, err?.message || err);
+          if (attempt < timeouts.length - 1) {
+            await new Promise(res => setTimeout(res, 200));
+          }
         }
       }
+    } catch (err: any) {
+      lastError = err;
     }
 
     // Resilience: Never replace good cached data with empty array on temporary DB lag
     if ((!Array.isArray(rows) || rows.length === 0) && cached && Array.isArray(cached.data) && cached.data.length > 0) {
-      console.warn('Returning cached data after DB error or empty result');
       return cached.data;
     }
 
     if (!Array.isArray(rows)) {
-      console.error('Neon DB query failed after all attempts:', lastError?.message || lastError);
+      // If Neon failed and SQLite had empty/no result, check SQLite one last time
+      if (Array.isArray(sqliteRows)) return sqliteRows;
+      console.error('Database query failed after all attempts:', lastError?.message || lastError);
       return cached?.data || [];
     }
 
-    if (dbCache.size > 500) {
+    if (dbCache.size > 1000) {
       dbCache.clear();
     }
 
-    dbCache.set(cacheKey, { data: rows, expiresAt: Date.now() + ttlMs });
+    dbCache.set(cacheKey, { data: rows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
     return rows;
   })();
 
@@ -178,6 +268,17 @@ function buildWhereCondition(tablePrefix: string, dbColumn: string, value: any, 
   }
 }
 
+function parseJsonField(val: any) {
+  if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
+    try {
+      return JSON.parse(val);
+    } catch {
+      return val;
+    }
+  }
+  return val;
+}
+
 // Data Mappers (snake_case DB -> camelCase Prisma object)
 function mapSport(row: any) {
   if (!row || typeof row !== 'object' || !row.id) return undefined;
@@ -187,8 +288,8 @@ function mapSport(row: any) {
     name: row.name,
     icon: formatImageUrl(row.icon) || '',
     color: row.color || '',
-    isActive: row.is_active ?? true,
-    sortOrder: row.sort_order ?? 0,
+    isActive: row.is_active ? true : Boolean(row.is_active ?? true),
+    sortOrder: Number(row.sort_order ?? 0),
   };
 }
 
@@ -211,6 +312,7 @@ function mapTeam(row: any) {
 
 function mapAuthor(row: any) {
   if (!row || typeof row !== 'object' || !row.id) return undefined;
+  const articlesRaw = parseJsonField(row.articles);
   return {
     id: row.id,
     name: row.name,
@@ -223,12 +325,14 @@ function mapAuthor(row: any) {
     socialLinkedIn: row.social_linkedin,
     createdAt: row.created_at ? new Date(row.created_at) : new Date(),
     updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
-    articles: Array.isArray(row.articles) ? row.articles.map(mapArticle) : [],
+    articles: Array.isArray(articlesRaw) ? articlesRaw.map(mapArticle) : [],
   };
 }
 
 function mapArticle(row: any) {
   if (!row || typeof row !== 'object' || !row.id) return undefined;
+  const sportObj = parseJsonField(row.sport);
+  const authorObj = parseJsonField(row.author);
   return {
     id: row.id,
     sportId: row.sport_id,
@@ -240,20 +344,23 @@ function mapArticle(row: any) {
     featuredImage: formatImageUrl(row.featured_image),
     category: row.category || 'news',
     tags: row.tags,
-    isPublished: row.is_published ?? true,
+    isPublished: row.is_published ? true : Boolean(row.is_published ?? true),
     publishedAt: row.published_at ? new Date(row.published_at) : new Date(),
     createdAt: row.created_at ? new Date(row.created_at) : new Date(),
     updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
     metaTitle: row.meta_title,
     metaDescription: row.meta_description,
     metaTags: row.meta_tags,
-    sport: row.sport ? mapSport(row.sport) : undefined,
-    author: row.author ? mapAuthor(row.author) : undefined,
+    sport: sportObj ? mapSport(sportObj) : undefined,
+    author: authorObj ? mapAuthor(authorObj) : undefined,
   };
 }
 
 function mapMatch(row: any) {
   if (!row || typeof row !== 'object' || !row.id) return undefined;
+  const sportObj = parseJsonField(row.sport);
+  const homeObj = parseJsonField(row.home_team);
+  const awayObj = parseJsonField(row.away_team);
   return {
     id: row.id,
     sportId: row.sport_id,
@@ -268,34 +375,36 @@ function mapMatch(row: any) {
     venue: row.venue,
     broadcastInfo: row.broadcast_info,
     matchSummary: row.match_summary,
-    homeVotes: row.home_votes ?? 0,
-    awayVotes: row.away_votes ?? 0,
+    homeVotes: Number(row.home_votes ?? 0),
+    awayVotes: Number(row.away_votes ?? 0),
     youtubeVideoIds: row.youtube_video_ids,
     seoContent: row.seo_content,
     createdAt: row.created_at ? new Date(row.created_at) : new Date(),
     updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
-    sport: row.sport ? mapSport(row.sport) : undefined,
-    homeTeam: row.home_team ? mapTeam(row.home_team) : undefined,
-    awayTeam: row.away_team ? mapTeam(row.away_team) : undefined,
+    sport: sportObj ? mapSport(sportObj) : undefined,
+    homeTeam: homeObj ? mapTeam(homeObj) : undefined,
+    awayTeam: awayObj ? mapTeam(awayObj) : undefined,
   };
 }
 
 function mapStanding(row: any) {
   if (!row || typeof row !== 'object' || !row.id) return undefined;
+  const sportObj = parseJsonField(row.sport);
+  const teamObj = parseJsonField(row.team);
   return {
     id: row.id,
     sportId: row.sport_id,
     teamId: row.team_id,
-    wins: row.wins ?? 0,
-    losses: row.losses ?? 0,
-    draws: row.draws ?? 0,
-    position: row.position ?? 0,
+    wins: Number(row.wins ?? 0),
+    losses: Number(row.losses ?? 0),
+    draws: Number(row.draws ?? 0),
+    position: Number(row.position ?? 0),
     percentage: row.percentage,
     streak: row.streak,
     createdAt: row.created_at ? new Date(row.created_at) : new Date(),
     updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
-    sport: row.sport ? mapSport(row.sport) : undefined,
-    team: row.team ? mapTeam(row.team) : undefined,
+    sport: sportObj ? mapSport(sportObj) : undefined,
+    team: teamObj ? mapTeam(teamObj) : undefined,
   };
 }
 
@@ -350,7 +459,9 @@ const articleDb = {
   async findMany(args: any = {}) {
     const params: any[] = [];
     let query = `
-      SELECT a.*,
+      SELECT 
+        a.id, a.sport_id, a.author_id, a.title, a.slug, a.excerpt, a.featured_image, a.category, 
+        a.tags, a.is_published, a.published_at, a.created_at, a.updated_at, a.meta_title, a.meta_description, a.meta_tags,
         json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
         json_build_object('id', au.id, 'name', au.name, 'slug', au.slug, 'avatar', au.avatar, 'title', au.title) as author
       FROM articles a
@@ -378,8 +489,21 @@ const articleDb = {
   },
 
   async findUnique(args: any = {}) {
-    const articles = await this.findMany({ where: args.where, take: 1 });
-    return articles.length > 0 ? articles[0] : null;
+    const params: any[] = [];
+    let query = `
+      SELECT a.*,
+        json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
+        json_build_object('id', au.id, 'name', au.name, 'slug', au.slug, 'avatar', au.avatar, 'title', au.title) as author
+      FROM articles a
+      LEFT JOIN sports s ON a.sport_id = s.id
+      LEFT JOIN authors au ON a.author_id = au.id
+      WHERE 1=1
+    `;
+    if (args.where?.id) query += buildWhereCondition('a', 'id', args.where.id, params);
+    if (args.where?.slug) query += buildWhereCondition('a', 'slug', args.where.slug, params);
+    query += ` LIMIT 1`;
+    const rows = await executeQueryWithCache(query, params, 120000);
+    return rows.length > 0 ? mapArticle(rows[0]) : null;
   },
 
   async findFirst(args: any = {}) {
@@ -417,7 +541,10 @@ const matchDb = {
   async findMany(args: any = {}) {
     const params: any[] = [];
     let query = `
-      SELECT m.*,
+      SELECT 
+        m.id, m.sport_id, m.external_id, m.slug, m.home_team_id, m.away_team_id, m.home_score, m.away_score, 
+        m.status, m.match_date, m.venue, m.broadcast_info, m.home_votes, m.away_votes, m.youtube_video_ids, 
+        m.created_at, m.updated_at,
         json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
         json_build_object('id', ht.id, 'name', ht.name, 'slug', ht.slug, 'abbreviation', ht.abbreviation, 'logo', ht.logo, 'color', ht.color) as home_team,
         json_build_object('id', at.id, 'name', at.name, 'slug', at.slug, 'abbreviation', at.abbreviation, 'logo', at.logo, 'color', at.color) as away_team
@@ -447,8 +574,23 @@ const matchDb = {
   },
 
   async findUnique(args: any = {}) {
-    const matches = await this.findMany({ where: args.where, take: 1 });
-    return matches.length > 0 ? matches[0] : null;
+    const params: any[] = [];
+    let query = `
+      SELECT m.*,
+        json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
+        json_build_object('id', ht.id, 'name', ht.name, 'slug', ht.slug, 'abbreviation', ht.abbreviation, 'logo', ht.logo, 'color', ht.color) as home_team,
+        json_build_object('id', at.id, 'name', at.name, 'slug', at.slug, 'abbreviation', at.abbreviation, 'logo', at.logo, 'color', at.color) as away_team
+      FROM matches m
+      LEFT JOIN sports s ON m.sport_id = s.id
+      LEFT JOIN teams ht ON m.home_team_id = ht.id
+      LEFT JOIN teams at ON m.away_team_id = at.id
+      WHERE 1=1
+    `;
+    if (args.where?.id) query += buildWhereCondition('m', 'id', args.where.id, params);
+    if (args.where?.slug) query += buildWhereCondition('m', 'slug', args.where.slug, params);
+    query += ` LIMIT 1`;
+    const rows = await executeQueryWithCache(query, params, 300000);
+    return rows.length > 0 ? mapMatch(rows[0]) : null;
   },
 
   async findFirst(args: any = {}) {
@@ -531,9 +673,10 @@ const authorDb = {
     if (args.include?.articles) {
       const authorIds = authors.map((a: any) => a.id);
       if (authorIds.length > 0) {
+        const placeholders = authorIds.map((_, idx) => `$${idx + 1}`).join(', ');
         const articleRows = await executeQueryWithCache(
-          `SELECT id, author_id, is_published FROM articles WHERE is_published = true AND author_id = ANY($1::text[])`,
-          [authorIds],
+          `SELECT id, author_id, is_published FROM articles WHERE is_published = true AND author_id IN (${placeholders})`,
+          authorIds,
           300000
         );
         const articleMap: Record<string, any[]> = {};

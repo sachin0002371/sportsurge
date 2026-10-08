@@ -99,7 +99,7 @@ export default function Header() {
                     <SheetTitle className="text-lg font-bold text-white">Sportsurge Official</SheetTitle>
                   </div>
                   <nav className="flex flex-col gap-1 p-3">
-                    <Link href="/" className="px-3 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-amber-400 rounded-lg flex items-center gap-3 transition-colors">
+                    <Link href="/" prefetch={true} className="px-3 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-amber-400 rounded-lg flex items-center gap-3 transition-colors">
                       <Home className="h-4 w-4" />
                       Home
                     </Link>
@@ -107,6 +107,7 @@ export default function Header() {
                       <Link
                         key={sport.slug}
                         href={`/${sport.slug}`}
+                        prefetch={true}
                         className="px-3 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-amber-400 rounded-lg flex items-center gap-3 transition-colors"
                       >
                         <sport.Icon className="h-4 w-4" />
@@ -115,12 +116,13 @@ export default function Header() {
                     ))}
                     <Link
                       href="/news"
+                      prefetch={true}
                       className="px-3 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-amber-400 rounded-lg flex items-center gap-3 transition-colors"
                     >
                       <PenLine className="h-4 w-4" />
                       News
                     </Link>
-                    <Link href="/fifa-wc-2026" className="px-3 py-2.5 text-sm font-medium text-amber-400 hover:bg-white/10 rounded-lg flex items-center gap-3 transition-colors">
+                    <Link href="/fifa-wc-2026" prefetch={true} className="px-3 py-2.5 text-sm font-medium text-amber-400 hover:bg-white/10 rounded-lg flex items-center gap-3 transition-colors">
                       <Trophy className="h-4 w-4" />
                       WC2026
                     </Link>
@@ -138,6 +140,7 @@ export default function Header() {
           <div className="flex items-center gap-0 overflow-x-auto scrollbar-hide">
             <Link
               href="/"
+              prefetch={true}
               className={`px-4 py-3 text-sm font-medium whitespace-nowrap flex items-center gap-2 transition-colors border-b-2 ${
                 !activeSport
                   ? 'text-amber-400 border-amber-400'
@@ -151,6 +154,7 @@ export default function Header() {
               <Link
                 key={sport.slug}
                 href={`/${sport.slug}`}
+                prefetch={true}
                 onClick={() => setActiveSport(sport.slug)}
                 className={`px-4 py-3 text-sm font-medium whitespace-nowrap flex items-center gap-2 transition-colors border-b-2 ${
                   activeSport === sport.slug
@@ -164,6 +168,7 @@ export default function Header() {
             ))}
             <Link
               href="/news"
+              prefetch={true}
               onClick={() => setActiveSport('news')}
               className={`px-4 py-3 text-sm font-medium whitespace-nowrap flex items-center gap-2 transition-colors border-b-2 ${
                 activeSport === 'news'
@@ -185,6 +190,7 @@ export default function Header() {
             <Link
               key={sport.slug}
               href={`/${sport.slug}`}
+              prefetch={true}
               className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white/70 hover:text-amber-400 hover:bg-white/10 rounded-full transition-colors"
             >
               <sport.Icon className="h-3.5 w-3.5" />

@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Suspense } from "react";
 import Script from "next/script";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import SiteDisclaimer from "@/components/SiteDisclaimer";
+import NavigationProgress from "@/components/NavigationProgress";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -71,6 +73,9 @@ export default function RootLayout({
         </Script>
       </head>
       <body className={`${inter.variable} antialiased font-sans`} style={{ backgroundColor: '#EDF1F6', color: '#222226' }}>
+        <Suspense fallback={null}>
+          <NavigationProgress />
+        </Suspense>
         <div className="min-h-screen flex flex-col">
           <SiteDisclaimer />
           <Header />
