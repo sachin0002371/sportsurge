@@ -92,6 +92,14 @@ export default async function HomePage() {
         take: 8,
       }),
     ]);
+
+    if (!matches || matches.length === 0) {
+      matches = await db.match.findMany({
+        include: { homeTeam: true, awayTeam: true, sport: true },
+        orderBy: { matchDate: 'desc' },
+        take: 20,
+      });
+    }
   } catch (error) {
     console.warn('HomePage db error during prerender:', error);
   }

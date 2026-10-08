@@ -140,7 +140,14 @@ export default function LiveMatchRibbon({ matches }: LiveMatchRibbonProps) {
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {filteredMatches.length === 0 ? (
-            <div className="text-sm py-4 px-4" style={{ color: 'rgba(34,34,38,0.6)' }}>No matches found</div>
+            <div className="flex items-center gap-2.5 py-4 px-5 text-xs font-semibold text-slate-500 bg-white rounded-2xl border border-[rgba(229,233,239,0.8)] shadow-2xs">
+              <span className="inline-block w-2 h-2 rounded-full bg-slate-400 animate-pulse" />
+              <span>
+                {filter === 'live'
+                  ? 'No matches currently LIVE right now. Click "Upcoming" or "All" to view scheduled matches.'
+                  : 'No matches found for this filter.'}
+              </span>
+            </div>
           ) : (
             filteredMatches.map((match) => {
               const votePercentages = getVotePercentages(match.homeVotes, match.awayVotes);
