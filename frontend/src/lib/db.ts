@@ -109,6 +109,37 @@ interface CacheEntry {
 const dbCache = new Map<string, CacheEntry>();
 const inFlightQueries = new Map<string, Promise<any[]>>();
 
+// Circuit breaker state to prevent cascading Worker timeouts (Error 1102)
+let dbCircuitBreakerUntil = 0;
+
+function isCircuitOpen(): boolean {
+  return Date.now() < dbCircuitBreakerUntil;
+}
+
+function tripCircuit(durationMs: number = 20000) {
+  dbCircuitBreakerUntil = Date.now() + durationMs;
+}
+
+function resetCircuit() {
+  dbCircuitBreakerUntil = 0;
+}
+
+async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: any = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Query timeout (${timeoutMs}ms)`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: number = 300000): Promise<any[]> {
   const cacheKey = `${queryStr}::${JSON.stringify(params)}`;
   const now = Date.now();
@@ -131,20 +162,20 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
   // If we have cached data (even if expired), return it IMMEDIATELY to the user so page loads in 0ms,
   // and trigger a silent background fetch to update the cache for subsequent requests.
   if (cached && Array.isArray(cached.data) && cached.data.length > 0) {
-    if (!inFlightQueries.has(cacheKey)) {
+    if (!inFlightQueries.has(cacheKey) && !isCircuitOpen()) {
       const backgroundRevalidate = (async () => {
         try {
           const sql = getSql();
           if (!sql) return;
-          const rows = await Promise.race([
-            sql.query(queryStr, params),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Background query timeout')), 10000))
-          ]);
+          const rows = await runWithTimeout(sql.query(queryStr, params), 2500);
           if (Array.isArray(rows) && rows.length > 0) {
             dbCache.set(cacheKey, { data: rows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
+            resetCircuit();
           }
-        } catch (e) {
-          // Silently retain existing cache
+        } catch (e: any) {
+          if (e?.message?.includes('authentication failed') || e?.message?.includes('fetch failed')) {
+            tripCircuit(20000);
+          }
         } finally {
           inFlightQueries.delete(cacheKey);
         }
@@ -169,24 +200,23 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
     let rows: any = null;
     let lastError: any = null;
 
+    if (isCircuitOpen()) {
+      if (Array.isArray(sqliteRows)) return sqliteRows;
+      return cached?.data || [];
+    }
+
     try {
       const sql = getSql();
       if (sql) {
-        const timeouts = [6000, 3000];
-        for (let attempt = 0; attempt < timeouts.length; attempt++) {
-          try {
-            rows = await Promise.race([
-              sql.query(queryStr, params),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`Neon query timeout (${timeouts[attempt]}ms)`)), timeouts[attempt])
-              ),
-            ]);
-            if (Array.isArray(rows)) break;
-          } catch (err: any) {
-            lastError = err;
-            if (attempt < timeouts.length - 1) {
-              await new Promise(res => setTimeout(res, 200));
-            }
+        try {
+          rows = await runWithTimeout(sql.query(queryStr, params), 2500);
+          if (Array.isArray(rows)) {
+            resetCircuit();
+          }
+        } catch (err: any) {
+          lastError = err;
+          if (err?.message?.includes('authentication failed') || err?.message?.includes('fetch failed') || err?.message?.includes('timeout')) {
+            tripCircuit(20000);
           }
         }
       }
