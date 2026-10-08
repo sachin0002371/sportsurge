@@ -2,7 +2,11 @@
 // Replaces heavy Prisma query engine binaries with lightweight, ultra-fast @neondatabase/serverless fetch adapter.
 // Includes in-memory edge query caching & retry resilience to guarantee zero cold-starts and 100% uptime on Cloudflare Workers.
 
-import { neon } from '@neondatabase/serverless';
+import { neon, neonConfig } from '@neondatabase/serverless';
+
+// Ensure Neon HTTP requests go directly to the host's /sql endpoint.
+// This prevents DNS lookup failures on cell-based hosts (e.g. *.c-4.*.aws.neon.tech).
+neonConfig.fetchEndpoint = (host: string) => `https://${host}/sql`;
 
 function getConnectionString(): string {
   const url = process.env.DATABASE_URL;
@@ -27,61 +31,88 @@ function getSql() {
   return cachedSql;
 }
 
-// In-Memory Edge Cache & Retry Resilience
+// In-Memory Edge Cache, Deduplication & Stale-While-Revalidate
 interface CacheEntry {
-  data: any;
+  data: any[];
   expiresAt: number;
 }
 
 const dbCache = new Map<string, CacheEntry>();
+const inFlightQueries = new Map<string, Promise<any[]>>();
 
-async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: number = 60000): Promise<any[]> {
+async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: number = 180000): Promise<any[]> {
   const cacheKey = `${queryStr}::${JSON.stringify(params)}`;
   const now = Date.now();
   const cached = dbCache.get(cacheKey);
+
+  // Instant response if fresh cache exists
   if (cached && cached.expiresAt > now) {
     return cached.data;
   }
 
-  const sql = getSql();
-  let rows: any = null;
-  let lastError: any = null;
-
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Deduplicate concurrent in-flight requests for the same query to prevent DB hammering
+  if (inFlightQueries.has(cacheKey)) {
     try {
-      // 3.5s strict timeout to prevent Worker hanging and 504 timeouts
-      rows = await Promise.race([
-        sql.query(queryStr, params),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Neon query timeout (3500ms)')), 3500)
-        ),
-      ]);
-      break;
-    } catch (err: any) {
-      lastError = err;
-      console.warn(`Neon DB query attempt ${attempt} failed:`, err?.message || err);
-      if (attempt < 2) {
-        await new Promise(res => setTimeout(res, 100));
+      const rows = await inFlightQueries.get(cacheKey)!;
+      if (Array.isArray(rows) && rows.length > 0) return rows;
+    } catch {
+      // Fall through to cache/fallback
+    }
+    if (cached && Array.isArray(cached.data)) return cached.data;
+  }
+
+  const queryPromise = (async () => {
+    const sql = getSql();
+    let rows: any = null;
+    let lastError: any = null;
+
+    // Attempt 1: 6500ms timeout (allows sleeping Neon compute to spin up without premature abort)
+    // Attempt 2: 3500ms timeout
+    const timeouts = [6500, 3500];
+    for (let attempt = 0; attempt < timeouts.length; attempt++) {
+      try {
+        rows = await Promise.race([
+          sql.query(queryStr, params),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Neon query timeout (${timeouts[attempt]}ms)`)), timeouts[attempt])
+          ),
+        ]);
+        if (Array.isArray(rows)) break;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Neon DB query attempt ${attempt + 1} failed:`, err?.message || err);
+        if (attempt < timeouts.length - 1) {
+          await new Promise(res => setTimeout(res, 200));
+        }
       }
     }
-  }
 
-  if ((!rows || !Array.isArray(rows)) && cached) {
-    console.warn('Returning stale cache after DB error');
-    return cached.data;
-  }
+    // Resilience: Never replace good cached data with empty array on temporary DB lag
+    if ((!Array.isArray(rows) || rows.length === 0) && cached && Array.isArray(cached.data) && cached.data.length > 0) {
+      console.warn('Returning cached data after DB error or empty result');
+      return cached.data;
+    }
 
-  if (!rows || !Array.isArray(rows)) {
-    console.error('Neon DB query failed after 2 attempts:', lastError?.message || lastError);
-    return [];
-  }
+    if (!Array.isArray(rows)) {
+      console.error('Neon DB query failed after all attempts:', lastError?.message || lastError);
+      return cached?.data || [];
+    }
 
-  if (dbCache.size > 500) {
-    dbCache.clear();
-  }
+    if (dbCache.size > 500) {
+      dbCache.clear();
+    }
 
-  dbCache.set(cacheKey, { data: rows, expiresAt: now + ttlMs });
-  return rows;
+    dbCache.set(cacheKey, { data: rows, expiresAt: Date.now() + ttlMs });
+    return rows;
+  })();
+
+  inFlightQueries.set(cacheKey, queryPromise);
+
+  try {
+    return await queryPromise;
+  } finally {
+    inFlightQueries.delete(cacheKey);
+  }
 }
 
 function formatImageUrl(url: string | null | undefined): string | undefined {
@@ -411,7 +442,7 @@ const matchDb = {
       params.push(args.skip);
       query += ` OFFSET $${params.length}`;
     }
-    const rows = await executeQueryWithCache(query, params, 60000); // 1 min cache
+    const rows = await executeQueryWithCache(query, params, 300000); // 5 min cache
     return rows.map(mapMatch).filter(Boolean);
   },
 
@@ -520,11 +551,14 @@ const authorDb = {
   },
 
   async findUnique(args: any = {}) {
-    const authors = await this.findMany({ where: args.where, include: args.include });
+    const authors = await this.findMany({ where: args.where });
     if (authors.length === 0) return null;
     const author = authors[0];
-    if (args.include?.articles && (!author.articles || author.articles.length === 0)) {
-      author.articles = await articleDb.findMany({ where: { authorId: author.id, isPublished: true }, take: 10 });
+    if (args.include?.articles) {
+      author.articles = await articleDb.findMany({
+        where: { authorId: author.id, isPublished: true },
+        take: 20,
+      });
     }
     return author;
   }

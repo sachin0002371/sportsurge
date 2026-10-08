@@ -10,6 +10,16 @@ interface AuthorPageProps {
 
 export const revalidate = 3600; // Cache for 1 hour
 
+export async function generateStaticParams() {
+  try {
+    const authors = await db.author.findMany({ select: { slug: true } });
+    return authors.map((a: any) => ({ slug: a.slug }));
+  } catch (error) {
+    console.warn('generateStaticParams authors error:', error);
+    return [];
+  }
+}
+
 export async function generateMetadata({ params }: AuthorPageProps) {
   const { slug } = await params;
   try {
@@ -72,12 +82,18 @@ export default async function AuthorPage({ params }: AuthorPageProps) {
           <h2 className="text-xl mb-4" style={{ fontWeight: 700, color: '#222226', letterSpacing: '-0.02em' }}>
             Articles by {author.name}
           </h2>
-          {author.articles.length === 0 ? (
+          {(!author.articles || author.articles.length === 0) ? (
             <p className="text-center py-8" style={{ color: 'rgba(34,34,38,0.5)' }}>No articles published yet</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {author.articles.map((article) => (
-                <ArticleCard key={article.id} article={article} />
+              {author.articles.map((article: any) => (
+                <ArticleCard
+                  key={article.id}
+                  article={{
+                    ...article,
+                    author: article.author || { name: author.name, avatar: author.avatar },
+                  }}
+                />
               ))}
             </div>
           )}

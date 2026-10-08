@@ -74,14 +74,14 @@ export default function ArticleCard({ article, featured = false }: ArticleCardPr
 
           {/* Author + Time */}
           <div className="flex items-center gap-2 mt-3">
-            {article.author.avatar && (
+            {article.author?.avatar && (
               <img
                 src={article.author.avatar}
-                alt={article.author.name}
+                alt={article.author.name || ''}
                 className="w-6 h-6 rounded-full"
               />
             )}
-            <span className="text-xs font-medium" style={{ color: '#374DF5' }}>{article.author.name}</span>
+            <span className="text-xs font-medium" style={{ color: '#374DF5' }}>{article.author?.name || 'Sportsurge Analyst'}</span>
             <span className="text-xs" style={{ color: 'rgba(34,34,38,0.4)' }}>•</span>
             <span className="text-xs" style={{ color: 'rgba(34,34,38,0.4)' }}>{timeAgo(article.publishedAt)}</span>
           </div>
