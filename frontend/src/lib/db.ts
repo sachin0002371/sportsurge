@@ -8,12 +8,8 @@ import { neon, neonConfig } from '@neondatabase/serverless';
 // This prevents DNS lookup failures on cell-based hosts (e.g. *.c-4.*.aws.neon.tech).
 neonConfig.fetchEndpoint = (host: string) => `https://${host}/sql`;
 
-function getConnectionString(): string {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error('DATABASE_URL environment variable is missing.');
-  }
-  return url;
+function getConnectionString(): string | null {
+  return process.env.DATABASE_URL || null;
 }
 
 let cachedSql: any = null;
@@ -21,48 +17,68 @@ let cachedSql: any = null;
 function getSql() {
   if (cachedSql) return cachedSql;
   let connStr = getConnectionString();
+  if (!connStr) return null;
   // Normalize for serverless HTTP fetch driver:
   // 1. Strip -pooler. because serverless HTTP is already stateless & pooled
   // 2. Remove channel_binding which is a TCP SCRAM-SHA-256 parameter
   connStr = connStr
     .replace('-pooler.', '.')
     .replace(/[?&]channel_binding=[^&]+/, '');
-  cachedSql = neon(connStr);
-  return cachedSql;
+  try {
+    cachedSql = neon(connStr);
+    return cachedSql;
+  } catch (e) {
+    return null;
+  }
 }
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
 
 let sqliteDb: any = null;
 function getSqlite() {
   if (sqliteDb) return sqliteDb;
   try {
-    const fs = require('fs');
-    const path = require('path');
     const candidates = [
       path.join(process.cwd(), 'dev.db'),
       path.join(process.cwd(), 'frontend', 'dev.db'),
       path.join(process.cwd(), '..', 'frontend', 'dev.db'),
       path.join(process.cwd(), 'prisma', 'dev.db'),
+      path.join(process.cwd(), 'frontend', 'prisma', 'dev.db'),
     ];
     for (const c of candidates) {
       if (fs.existsSync(c)) {
-        const { DatabaseSync } = require('node:sqlite');
-        sqliteDb = new DatabaseSync(c);
-        return sqliteDb;
+        try {
+          const req = eval('require');
+          const { DatabaseSync } = req('node:sqlite');
+          sqliteDb = new DatabaseSync(c);
+          return sqliteDb;
+        } catch (err: any) {
+          console.error('Next.js SQLite load error:', err?.message || err);
+        }
       }
     }
-  } catch (e) {}
+  } catch (e: any) {
+    console.error('getSqlite outer error:', e?.message || e);
+  }
   return null;
 }
 
 function querySqlite(queryStr: string, params: any[]): any[] | null {
   const sdb = getSqlite();
-  if (!sdb) return null;
+  if (!sdb) {
+    return null;
+  }
   try {
     let sqlQuery = queryStr
       .replace(/json_build_object/g, 'json_object')
       .replace(/NULLS LAST/gi, '')
       .replace(/::int/gi, '')
-      .replace(/::text\[\]/gi, '');
+      .replace(/::text\[\]/gi, '')
+      .replace(/=\s*true/gi, '= 1')
+      .replace(/=\s*false/gi, '= 0')
+      .replace(/NOW\(\)/gi, "datetime('now')");
     
     sqlQuery = sqlQuery.replace(/\$(\d+)/g, '?');
 
@@ -103,7 +119,15 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
     return cached.data;
   }
 
-  // 2. True Stale-While-Revalidate (SWR):
+  // 2. Fast-path: If local SQLite database is available, query locally in 0.1ms
+  const sqliteRows = querySqlite(queryStr, params);
+  if (Array.isArray(sqliteRows) && sqliteRows.length > 0) {
+    if (dbCache.size > 1000) dbCache.clear();
+    dbCache.set(cacheKey, { data: sqliteRows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
+    return sqliteRows;
+  }
+
+  // 3. True Stale-While-Revalidate (SWR):
   // If we have cached data (even if expired), return it IMMEDIATELY to the user so page loads in 0ms,
   // and trigger a silent background fetch to update the cache for subsequent requests.
   if (cached && Array.isArray(cached.data) && cached.data.length > 0) {
@@ -111,6 +135,7 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
       const backgroundRevalidate = (async () => {
         try {
           const sql = getSql();
+          if (!sql) return;
           const rows = await Promise.race([
             sql.query(queryStr, params),
             new Promise((_, reject) => setTimeout(() => reject(new Error('Background query timeout')), 10000))
@@ -129,7 +154,7 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
     return cached.data;
   }
 
-  // 3. Deduplicate concurrent in-flight requests for the same query to prevent DB hammering
+  // 4. Deduplicate concurrent in-flight requests for the same query to prevent DB hammering
   if (inFlightQueries.has(cacheKey)) {
     try {
       const rows = await inFlightQueries.get(cacheKey)!;
@@ -144,36 +169,36 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
     let rows: any = null;
     let lastError: any = null;
 
-    // Fast-path: If local SQLite database is available, query locally in 0.1ms
-    const sqliteRows = querySqlite(queryStr, params);
-    if (Array.isArray(sqliteRows) && sqliteRows.length > 0) {
-      if (dbCache.size > 1000) dbCache.clear();
-      dbCache.set(cacheKey, { data: sqliteRows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
-      return sqliteRows;
-    }
-
     try {
       const sql = getSql();
-      const timeouts = [8000, 4000];
-      for (let attempt = 0; attempt < timeouts.length; attempt++) {
-        try {
-          rows = await Promise.race([
-            sql.query(queryStr, params),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error(`Neon query timeout (${timeouts[attempt]}ms)`)), timeouts[attempt])
-            ),
-          ]);
-          if (Array.isArray(rows)) break;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`Neon DB query attempt ${attempt + 1} failed:`, err?.message || err);
-          if (attempt < timeouts.length - 1) {
-            await new Promise(res => setTimeout(res, 200));
+      if (sql) {
+        const timeouts = [6000, 3000];
+        for (let attempt = 0; attempt < timeouts.length; attempt++) {
+          try {
+            rows = await Promise.race([
+              sql.query(queryStr, params),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`Neon query timeout (${timeouts[attempt]}ms)`)), timeouts[attempt])
+              ),
+            ]);
+            if (Array.isArray(rows)) break;
+          } catch (err: any) {
+            lastError = err;
+            if (attempt < timeouts.length - 1) {
+              await new Promise(res => setTimeout(res, 200));
+            }
           }
         }
       }
     } catch (err: any) {
       lastError = err;
+    }
+
+    // Fast SQLite fallback if Neon failed or is not configured
+    if (!Array.isArray(rows) || rows.length === 0) {
+      if (Array.isArray(sqliteRows)) {
+        return sqliteRows;
+      }
     }
 
     // Resilience: Never replace good cached data with empty array on temporary DB lag
@@ -182,9 +207,6 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
     }
 
     if (!Array.isArray(rows)) {
-      // If Neon failed and SQLite had empty/no result, check SQLite one last time
-      if (Array.isArray(sqliteRows)) return sqliteRows;
-      console.error('Database query failed after all attempts:', lastError?.message || lastError);
       return cached?.data || [];
     }
 
