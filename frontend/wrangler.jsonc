@@ -14,9 +14,6 @@
   "observability": {
     "enabled": true
   },
-  "placement": {
-    "mode": "smart"
-  },
   "vars": {
     "BACKEND_URL": "https://sportsurgebackend-sportsurgebackend-krhn-babfc1-91-98-46-3.sslip.io"
   }

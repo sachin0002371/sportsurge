@@ -12,9 +12,19 @@ function getConnectionString(): string {
   return url;
 }
 
+let cachedSql: any = null;
+
 function getSql() {
-  const connStr = getConnectionString();
-  return neon(connStr);
+  if (cachedSql) return cachedSql;
+  let connStr = getConnectionString();
+  // Normalize for serverless HTTP fetch driver:
+  // 1. Strip -pooler. because serverless HTTP is already stateless & pooled
+  // 2. Remove channel_binding which is a TCP SCRAM-SHA-256 parameter
+  connStr = connStr
+    .replace('-pooler.', '.')
+    .replace(/[?&]channel_binding=[^&]+/, '');
+  cachedSql = neon(connStr);
+  return cachedSql;
 }
 
 // In-Memory Edge Cache & Retry Resilience
@@ -39,13 +49,19 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      rows = await sql.query(queryStr, params);
+      // 3.5s strict timeout to prevent Worker hanging and 504 timeouts
+      rows = await Promise.race([
+        sql.query(queryStr, params),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Neon query timeout (3500ms)')), 3500)
+        ),
+      ]);
       break;
     } catch (err: any) {
       lastError = err;
       console.warn(`Neon DB query attempt ${attempt} failed:`, err?.message || err);
       if (attempt < 2) {
-        await new Promise(res => setTimeout(res, 150));
+        await new Promise(res => setTimeout(res, 100));
       }
     }
   }
@@ -56,7 +72,7 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
   }
 
   if (!rows || !Array.isArray(rows)) {
-    console.error('Neon DB query failed after 2 attempts:', lastError);
+    console.error('Neon DB query failed after 2 attempts:', lastError?.message || lastError);
     return [];
   }
 
