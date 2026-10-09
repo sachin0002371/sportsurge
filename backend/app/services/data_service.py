@@ -92,7 +92,7 @@ INITIAL_ARTICLES = [
         "title": "2026 NBA Championship Race: Tactical Evolution and Key Contenders",
         "sport_slug": "nba",
         "category": "analysis",
-        "author_slug": "marcus-hayes",
+        "author_slug": "marcus-johnson",
         "featured_image": "https://images.pexels.com/photos/1752757/pexels-photo-1752757.jpeg?auto=compress&cs=tinysrgb&w=1200",
         "content": """The 2026 NBA season is witnessing an unprecedented evolution in tactical execution. Teams are prioritizing positionless basketball, spacing, and transition efficiency over traditional isolation sets.
 
@@ -104,7 +104,7 @@ Key championship contenders have bolstered their perimeter shooting, creating wi
         "title": "NFL Defense Breakdown: How Modern Schemes Are Countering High-Powered Offenses",
         "sport_slug": "nfl",
         "category": "analysis",
-        "author_slug": "derek-vance",
+        "author_slug": "sarah-mitchell",
         "featured_image": "https://images.pexels.com/photos/1618269/pexels-photo-1618269.jpeg?auto=compress&cs=tinysrgb&w=1200",
         "content": """NFL defensive coordinators have innovated rapidly to counter explosive spread offenses. The widespread adoption of split-safety coverages and disguised two-high shells has forced quarterbacks into patient, underneath checkdowns.
 
@@ -116,7 +116,7 @@ With explosive play rates dropping across the league, offensive play-callers mus
         "title": "MLB Postseason Pitching Mastery: The Impact of High-Leverage Bullpens",
         "sport_slug": "mlb",
         "category": "analysis",
-        "author_slug": "elena-rostova",
+        "author_slug": "david-chen",
         "featured_image": "https://images.pexels.com/photos/209977/pexels-photo-209977.jpeg?auto=compress&cs=tinysrgb&w=1200",
         "content": """Modern Major League Baseball postseason success is defined by bullpen usage. Starters are rarely asked to navigate a lineup three times, placing immense responsibility on high-leverage relief corps.
 
@@ -128,7 +128,7 @@ Offenses that generate traffic via walks and timely power have the best odds of 
         "title": "NHL Stanley Cup Outlook: Speed, Transition and Goaltending Dominance",
         "sport_slug": "nhl",
         "category": "preview",
-        "author_slug": "alex-chen",
+        "author_slug": "david-chen",
         "featured_image": "https://images.pexels.com/photos/3621104/pexels-photo-3621104.jpeg?auto=compress&cs=tinysrgb&w=1200",
         "content": """The NHL pace of play is faster than at any point in modern hockey history. Defensemen who can skate out of trouble and trigger transition offenses are in high demand across the league.
 
@@ -140,7 +140,7 @@ Elite goaltending remains the great equalizer. Netminders with top-tier high-dan
         "title": "ICC T20 World Cup Strategy: Death Overs Hitting and Mystery Spin",
         "sport_slug": "cricket",
         "category": "analysis",
-        "author_slug": "tariq-mansoor",
+        "author_slug": "priya-sharma",
         "featured_image": "https://images.pexels.com/photos/3628912/pexels-photo-3628912.jpeg?auto=compress&cs=tinysrgb&w=1200",
         "content": """International T20 cricket is reaching new statistical peaks with aggressive powerplay scoring and calculated death overs acceleration. Teams that maintain a 10+ run rate across the middle overs are consistently setting winning totals.
 
@@ -152,7 +152,7 @@ All-rounders who contribute four economical overs and provide explosive lower-or
         "title": "Formula 1 Aerodynamic Battle: Key Upgrades Reshaping the Podium",
         "sport_slug": "f1",
         "category": "news",
-        "author_slug": "alex-chen",
+        "author_slug": "emily-rodriguez",
         "featured_image": "https://images.pexels.com/photos/12795/pexels-photo-12795.jpeg?auto=compress&cs=tinysrgb&w=1200",
         "content": """The 2026 Formula 1 championship battle is intensifying as top constructors bring comprehensive aerodynamic upgrade packages. Floor modifications and revised sidepod inlets have tightened qualifying margins to under a tenth of a second.
 
@@ -164,7 +164,7 @@ With high-speed circuits on the horizon, top-speed efficiency and DRS effectiven
         "title": "UFC Championship Clashes: Wrestling Control vs Striking Precision",
         "sport_slug": "mma",
         "category": "preview",
-        "author_slug": "marcus-hayes",
+        "author_slug": "james-obrien",
         "featured_image": "https://images.pexels.com/photos/4761792/pexels-photo-4761792.jpeg?auto=compress&cs=tinysrgb&w=1200",
         "content": """Mixed Martial Arts title fights in 2026 continue to pit elite grappling styles against precision counter-strikers. Chain-wrestling and cage pressure remain the most dominant pathway to controlling championship rounds.
 
@@ -176,7 +176,7 @@ Fans can expect high-stakes technical battles as the undisputed belts change han
         "title": "College Football Playoff Race: Powerhouse Programs Collide in Crucial Week",
         "sport_slug": "ncaaf",
         "category": "preview",
-        "author_slug": "derek-vance",
+        "author_slug": "sarah-mitchell",
         "featured_image": "https://images.pexels.com/photos/1618269/pexels-photo-1618269.jpeg?auto=compress&cs=tinysrgb&w=1200",
         "content": """The expanded College Football Playoff format has amplified the drama of every single regular-season Saturday. Margin of victory, strength of schedule, and signature ranked wins are dictating committee evaluations.
 
@@ -207,7 +207,7 @@ async def ensure_initial_articles(db: AsyncSession) -> int:
             continue
 
         sport = sports.get(item["sport_slug"])
-        author = authors.get(item["author_slug"])
+        author = authors.get(item["author_slug"]) or (list(authors.values())[0] if authors else None)
 
         if not sport or not author:
             continue
