@@ -6,7 +6,7 @@ WORKDIR /app
 # Copy dependency definitions
 COPY frontend/package.json frontend/package-lock.json* ./
 COPY frontend/prisma ./prisma/
-RUN npm ci
+RUN npm install --legacy-peer-deps --no-audit
 
 # Stage 2: Builder
 FROM node:22-alpine AS builder

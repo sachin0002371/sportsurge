@@ -6,7 +6,7 @@ WORKDIR /app
 # Copy dependency definitions
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
-RUN npm ci
+RUN npm install --legacy-peer-deps --no-audit
 
 # Stage 2: Builder
 FROM node:22-alpine AS builder
