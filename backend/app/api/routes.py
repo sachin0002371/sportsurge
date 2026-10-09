@@ -52,7 +52,7 @@ async def health_check():
 
 # ==================== Data Fetching ====================
 
-@router.post("/fetch-data")
+@router.api_route("/fetch-data", methods=["GET", "POST"])
 async def fetch_data(
     sport: Optional[str] = Query(None, description="Specific sport slug to fetch"),
     db: AsyncSession = Depends(get_db),
@@ -408,7 +408,7 @@ async def generate_article_v3_endpoint(
 
 # ==================== v3.0: Generate Match Summaries ====================
 
-@router.post("/generate-summaries")
+@router.api_route("/generate-summaries", methods=["GET", "POST"])
 async def generate_summaries_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
