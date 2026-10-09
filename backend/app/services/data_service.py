@@ -175,9 +175,10 @@ async def fetch_and_store_matches(db: AsyncSession, sport_slug: str) -> dict:
     # 1. Matches marked 'live' that are not in current ESPN live response and started > 4 hours ago -> finished
     # 2. Matches marked 'upcoming' whose match_date is in the past (> 12 hours ago) -> finished
     try:
-        from datetime import timedelta
-        four_hours_ago = datetime.utcnow() - timedelta(hours=4)
-        twelve_hours_ago = datetime.utcnow() - timedelta(hours=12)
+        from datetime import timedelta, timezone
+        now_utc = datetime.now(timezone.utc)
+        four_hours_ago = now_utc - timedelta(hours=4)
+        twelve_hours_ago = now_utc - timedelta(hours=12)
         
         current_event_ids = [str(e.get("id")) for e in data.get("events", []) if e.get("id")]
         
@@ -541,6 +542,18 @@ async def get_articles(
     return {
         "articles": [_article_to_dict(a) for a in articles],
     }
+
+
+async def get_article_by_slug(db: AsyncSession, slug: str) -> Optional[dict]:
+    """Get a single article by slug."""
+    stmt = select(Article).where(Article.slug == slug).options(
+        selectinload(Article.author),
+        selectinload(Article.sport),
+    )
+    article = (await db.execute(stmt)).scalar_one_or_none()
+    if not article:
+        return None
+    return _article_to_dict(article)
 
 
 async def get_standings(db: AsyncSession, sport_slug: str) -> list[dict]:

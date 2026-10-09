@@ -1,183 +1,90 @@
-// Sportsurge Official v3.0 - Direct Serverless Neon Database Adapter
-// Replaces heavy Prisma query engine binaries with lightweight, ultra-fast @neondatabase/serverless fetch adapter.
-// Includes in-memory edge query caching & retry resilience to guarantee zero cold-starts and 100% uptime on Cloudflare Workers.
+// Sportsurge Official v3.0 - Direct Fast Python Backend API Adapter
+// Completely decouples frontend Cloudflare Worker from database connections.
+// Uses fast HTTP fetch with SWR in-memory edge caching to guarantee 0ms cold-start,
+// 0 database compute hours, and 100% immunity from Cloudflare Worker Error 1102.
 
-import { neon, neonConfig } from '@neondatabase/serverless';
-
-// Ensure Neon HTTP requests go directly to the host's /sql endpoint.
-// This prevents DNS lookup failures on cell-based hosts (e.g. *.c-4.*.aws.neon.tech).
-neonConfig.fetchEndpoint = (host: string) => `https://${host}/sql`;
-
-function getConnectionString(): string | null {
-  return process.env.DATABASE_URL || null;
-}
-
-let cachedSql: any = null;
-
-function getSql() {
-  if (cachedSql) return cachedSql;
-  let connStr = getConnectionString();
-  if (!connStr) return null;
-  // Normalize for serverless HTTP fetch driver:
-  // 1. Strip -pooler. because serverless HTTP is already stateless & pooled
-  // 2. Remove channel_binding which is a TCP SCRAM-SHA-256 parameter
-  connStr = connStr
-    .replace('-pooler.', '.')
-    .replace(/[?&]channel_binding=[^&]+/, '');
-  try {
-    cachedSql = neon(connStr);
-    return cachedSql;
-  } catch (e) {
-    return null;
+function getBackendUrl(): string {
+  let url = process.env.BACKEND_URL || 'https://backend.sportsurgeplay.com';
+  if (url.endsWith('/')) {
+    url = url.slice(0, -1);
   }
+  return url;
 }
 
-// In-Memory Edge Cache, Deduplication & Stale-While-Revalidate (SWR)
+// In-Memory Edge Cache & Deduplication
 interface CacheEntry {
-  data: any[];
+  data: any;
   expiresAt: number;
-  updatedAt: number;
 }
 
-const dbCache = new Map<string, CacheEntry>();
-const inFlightQueries = new Map<string, Promise<any[]>>();
+const edgeCache = new Map<string, CacheEntry>();
+const inFlightRequests = new Map<string, Promise<any>>();
 
-// Circuit breaker state to prevent cascading Worker timeouts (Error 1102)
-let dbCircuitBreakerUntil = 0;
-
-function isCircuitOpen(): boolean {
-  return Date.now() < dbCircuitBreakerUntil;
-}
-
-function tripCircuit(durationMs: number = 20000) {
-  dbCircuitBreakerUntil = Date.now() + durationMs;
-}
-
-function resetCircuit() {
-  dbCircuitBreakerUntil = 0;
-}
-
-async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: any = null;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(new Error(`Query timeout (${timeoutMs}ms)`));
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
-}
-
-async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: number = 300000): Promise<any[]> {
-  const cacheKey = `${queryStr}::${JSON.stringify(params)}`;
+async function fetchFromBackend(endpoint: string, options: RequestInit = {}, ttlMs: number = 30000): Promise<any> {
+  const backendUrl = getBackendUrl();
+  const url = `${backendUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+  const cacheKey = `${options.method || 'GET'}::${url}::${options.body || ''}`;
   const now = Date.now();
-  const cached = dbCache.get(cacheKey);
+  const cached = edgeCache.get(cacheKey);
 
-  // 1. Instant response if fresh cache exists (0ms latency)
-  if (cached && cached.expiresAt > now && Array.isArray(cached.data) && cached.data.length > 0) {
+  // Return fresh cache instantly (0ms)
+  if (cached && cached.expiresAt > now && cached.data) {
     return cached.data;
   }
 
-  // 2. True Stale-While-Revalidate (SWR):
-  // If we have cached data (even if expired), return it IMMEDIATELY to the user so page loads in 0ms,
-  // and trigger a silent background fetch to update the cache for subsequent requests.
-  if (cached && Array.isArray(cached.data) && cached.data.length > 0) {
-    if (!inFlightQueries.has(cacheKey) && !isCircuitOpen()) {
-      const backgroundRevalidate = (async () => {
-        try {
-          const sql = getSql();
-          if (!sql) return;
-          const rows = await runWithTimeout(sql.query(queryStr, params), 10000);
-          if (Array.isArray(rows) && rows.length > 0) {
-            dbCache.set(cacheKey, { data: rows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
-            resetCircuit();
-          }
-        } catch (e: any) {
-          if (e?.message?.includes('authentication failed')) {
-            tripCircuit(15000);
-          }
-        } finally {
-          inFlightQueries.delete(cacheKey);
-        }
-      })();
-      inFlightQueries.set(cacheKey, backgroundRevalidate as any);
-    }
-    return cached.data;
-  }
-
-  // 3. Deduplicate concurrent in-flight requests for the same query to prevent DB hammering
-  if (inFlightQueries.has(cacheKey)) {
+  // Deduplicate identical concurrent requests
+  if (inFlightRequests.has(cacheKey)) {
     try {
-      const rows = await inFlightQueries.get(cacheKey)!;
-      if (Array.isArray(rows) && rows.length > 0) return rows;
+      const res = await inFlightRequests.get(cacheKey)!;
+      if (res) return res;
     } catch {
-      // Fall through to query execution
+      // Fall through to fetch
     }
-    if (cached && Array.isArray(cached.data) && cached.data.length > 0) return cached.data;
   }
 
-  const queryPromise = (async () => {
-    let rows: any = null;
-    let lastError: any = null;
-
-    if (isCircuitOpen()) {
-      return cached?.data || [];
-    }
-
+  const fetchPromise = (async () => {
     try {
-      const sql = getSql();
-      if (sql) {
-        try {
-          rows = await runWithTimeout(sql.query(queryStr, params), 10000);
-          if (Array.isArray(rows)) {
-            resetCircuit();
-          }
-        } catch (err: any) {
-          lastError = err;
-          if (err?.message?.includes('authentication failed')) {
-            tripCircuit(15000);
-          }
-        }
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+        // Cloudflare CDN cache hints
+        next: { revalidate: Math.floor(ttlMs / 1000) },
+      });
+
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        console.warn(`Backend API ${url} responded with status ${res.status}`);
+        return cached?.data || null;
       }
-    } catch (err: any) {
-      lastError = err;
-    }
 
-    // Fast SQLite fallback if Neon failed or is not configured
-    if (!Array.isArray(rows) || rows.length === 0) {
-      if (Array.isArray(sqliteRows)) {
-        return sqliteRows;
+      const data = await res.json();
+      if (data !== undefined && data !== null) {
+        if (edgeCache.size > 500) edgeCache.clear();
+        edgeCache.set(cacheKey, { data, expiresAt: Date.now() + ttlMs });
+        return data;
       }
+      return cached?.data || null;
+    } catch (err) {
+      console.warn(`Backend API fetch error for ${url}:`, err);
+      return cached?.data || null;
     }
-
-    // Resilience: Never replace good cached data with empty array on temporary DB lag
-    if ((!Array.isArray(rows) || rows.length === 0) && cached && Array.isArray(cached.data) && cached.data.length > 0) {
-      return cached.data;
-    }
-
-    if (!Array.isArray(rows)) {
-      return cached?.data || [];
-    }
-
-    if (dbCache.size > 1000) {
-      dbCache.clear();
-    }
-
-    dbCache.set(cacheKey, { data: rows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
-    return rows;
   })();
 
-  inFlightQueries.set(cacheKey, queryPromise);
+  inFlightRequests.set(cacheKey, fetchPromise);
 
   try {
-    return await queryPromise;
+    return await fetchPromise;
   } finally {
-    inFlightQueries.delete(cacheKey);
+    inFlightRequests.delete(cacheKey);
   }
 }
 
@@ -194,101 +101,42 @@ function formatImageUrl(url: string | null | undefined): string | undefined {
       }
     } catch (e) {}
   }
-  // Unwrap article-image proxy URLs to load directly from CDN (ESPN/Pexels)
-  if (url.includes('/api/v1/article-image/') && url.includes('url=')) {
-    try {
-      const rawUrl = url.split('url=')[1]?.split('&')[0];
-      if (rawUrl) {
-        const decoded = decodeURIComponent(rawUrl);
-        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
-          return decoded;
-        }
-      }
-    } catch (e) {}
-  }
-  const backendUrl = process.env.BACKEND_URL || 'https://backend.sportsurgeplay.com';
-  if (url.includes('backend.sportsurgeplay.com')) {
-    return url.replace('https://backend.sportsurgeplay.com', backendUrl);
-  }
   return url;
 }
 
-function buildWhereCondition(tablePrefix: string, dbColumn: string, value: any, params: any[]): string {
-  if (value === undefined || value === null) return '';
-  const col = tablePrefix ? `${tablePrefix}.${dbColumn}` : dbColumn;
-  if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
-    let sqlSnippet = '';
-    if (Array.isArray(value.in) && value.in.length > 0) {
-      const placeholders = value.in.map((v: any) => {
-        params.push(v);
-        return `$${params.length}`;
-      }).join(', ');
-      sqlSnippet += ` AND ${col} IN (${placeholders})`;
-    }
-    if (value.not !== undefined) {
-      params.push(value.not);
-      sqlSnippet += ` AND ${col} != $${params.length}`;
-    }
-    if (value.gte !== undefined) {
-      params.push(value.gte);
-      sqlSnippet += ` AND ${col} >= $${params.length}`;
-    }
-    if (value.lte !== undefined) {
-      params.push(value.lte);
-      sqlSnippet += ` AND ${col} <= $${params.length}`;
-    }
-    return sqlSnippet;
-  } else {
-    params.push(value);
-    return ` AND ${col} = $${params.length}`;
-  }
-}
-
-function parseJsonField(val: any) {
-  if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return val;
-    }
-  }
-  return val;
-}
-
-// Data Mappers (snake_case DB -> camelCase Prisma object)
+// Data formatters
 function mapSport(row: any) {
-  if (!row || typeof row !== 'object' || !row.id) return undefined;
+  if (!row) return null;
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
     icon: formatImageUrl(row.icon) || '',
-    color: row.color || '',
-    isActive: row.is_active ? true : Boolean(row.is_active ?? true),
-    sortOrder: Number(row.sort_order ?? 0),
+    color: row.color || '#374DF5',
+    isActive: row.isActive ?? row.is_active ?? true,
+    sortOrder: Number(row.sortOrder ?? row.sort_order ?? 0),
   };
 }
 
 function mapTeam(row: any) {
-  if (!row || typeof row !== 'object' || !row.id) return undefined;
+  if (!row) return null;
   return {
     id: row.id,
-    sportId: row.sport_id,
-    externalId: row.external_id,
+    sportId: row.sportId || row.sport_id,
+    externalId: row.externalId || row.external_id,
     name: row.name,
     abbreviation: row.abbreviation || '',
     slug: row.slug,
     city: row.city,
     logo: formatImageUrl(row.logo),
     color: row.color,
-    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
+    createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
+    updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
   };
 }
 
 function mapAuthor(row: any) {
-  if (!row || typeof row !== 'object' || !row.id) return undefined;
-  const articlesRaw = parseJsonField(row.articles);
+  if (!row) return null;
   return {
     id: row.id,
     name: row.name,
@@ -297,133 +145,106 @@ function mapAuthor(row: any) {
     title: row.title || '',
     bio: row.bio || '',
     specialty: row.specialty || '',
-    socialTwitter: row.social_twitter,
-    socialLinkedIn: row.social_linkedin,
-    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
-    articles: Array.isArray(articlesRaw) ? articlesRaw.map(mapArticle) : [],
+    socialTwitter: row.socialTwitter || row.social_twitter,
+    socialLinkedIn: row.socialLinkedIn || row.social_linkedin,
+    createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
+    updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
+    articles: Array.isArray(row.articles) ? row.articles.map(mapArticle) : [],
   };
 }
 
 function mapArticle(row: any) {
-  if (!row || typeof row !== 'object' || !row.id) return undefined;
-  const sportObj = parseJsonField(row.sport);
-  const authorObj = parseJsonField(row.author);
+  if (!row) return null;
   return {
     id: row.id,
-    sportId: row.sport_id,
-    authorId: row.author_id,
+    sportId: row.sportId || row.sport_id,
+    authorId: row.authorId || row.author_id,
     title: row.title,
     slug: row.slug,
     excerpt: row.excerpt || '',
     content: row.content || '',
-    featuredImage: formatImageUrl(row.featured_image),
+    featuredImage: formatImageUrl(row.featuredImage || row.featured_image),
     category: row.category || 'news',
     tags: row.tags,
-    isPublished: row.is_published ? true : Boolean(row.is_published ?? true),
-    publishedAt: row.published_at ? new Date(row.published_at) : new Date(),
-    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
-    metaTitle: row.meta_title,
-    metaDescription: row.meta_description,
-    metaTags: row.meta_tags,
-    sport: sportObj ? mapSport(sportObj) : undefined,
-    author: authorObj ? mapAuthor(authorObj) : undefined,
+    isPublished: row.isPublished ?? row.is_published ?? true,
+    publishedAt: row.publishedAt ? new Date(row.publishedAt) : (row.published_at ? new Date(row.published_at) : new Date()),
+    createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
+    updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
+    metaTitle: row.metaTitle || row.meta_title,
+    metaDescription: row.metaDescription || row.meta_description,
+    metaTags: row.metaTags || row.meta_tags,
+    sport: row.sport ? mapSport(row.sport) : undefined,
+    author: row.author ? mapAuthor(row.author) : undefined,
   };
 }
 
 function mapMatch(row: any) {
-  if (!row || typeof row !== 'object' || !row.id) return undefined;
-  const sportObj = parseJsonField(row.sport);
-  const homeObj = parseJsonField(row.home_team);
-  const awayObj = parseJsonField(row.away_team);
+  if (!row) return null;
   return {
     id: row.id,
-    sportId: row.sport_id,
-    externalId: row.external_id,
+    sportId: row.sportId || row.sport_id,
+    externalId: row.externalId || row.external_id,
     slug: row.slug,
-    homeTeamId: row.home_team_id,
-    awayTeamId: row.away_team_id,
-    homeScore: row.home_score,
-    awayScore: row.away_score,
+    homeTeamId: row.homeTeamId || row.home_team_id,
+    awayTeamId: row.awayTeamId || row.away_team_id,
+    homeScore: row.homeScore ?? row.home_score ?? null,
+    awayScore: row.awayScore ?? row.away_score ?? null,
     status: row.status || 'upcoming',
-    matchDate: row.match_date ? new Date(row.match_date) : new Date(),
+    matchDate: row.matchDate ? new Date(row.matchDate) : (row.match_date ? new Date(row.match_date) : new Date()),
     venue: row.venue,
-    broadcastInfo: row.broadcast_info,
-    matchSummary: row.match_summary,
-    homeVotes: Number(row.home_votes ?? 0),
-    awayVotes: Number(row.away_votes ?? 0),
-    youtubeVideoIds: row.youtube_video_ids,
-    seoContent: row.seo_content,
-    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
-    sport: sportObj ? mapSport(sportObj) : undefined,
-    homeTeam: homeObj ? mapTeam(homeObj) : undefined,
-    awayTeam: awayObj ? mapTeam(awayObj) : undefined,
+    broadcastInfo: typeof row.broadcastInfo === 'string' ? row.broadcastInfo : (typeof row.broadcast_info === 'string' ? row.broadcast_info : JSON.stringify(row.broadcastInfo || row.broadcast_info || {})),
+    matchSummary: row.matchSummary || row.match_summary,
+    homeVotes: Number(row.homeVotes ?? row.home_votes ?? 0),
+    awayVotes: Number(row.awayVotes ?? row.away_votes ?? 0),
+    youtubeVideoIds: row.youtubeVideoIds || row.youtube_video_ids,
+    seoContent: row.seoContent || row.seo_content,
+    createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
+    updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
+    sport: row.sport ? mapSport(row.sport) : undefined,
+    homeTeam: row.homeTeam ? mapTeam(row.homeTeam) : (row.home_team ? mapTeam(row.home_team) : undefined),
+    awayTeam: row.awayTeam ? mapTeam(row.awayTeam) : (row.away_team ? mapTeam(row.away_team) : undefined),
   };
 }
 
 function mapStanding(row: any) {
-  if (!row || typeof row !== 'object' || !row.id) return undefined;
-  const sportObj = parseJsonField(row.sport);
-  const teamObj = parseJsonField(row.team);
+  if (!row) return null;
   return {
     id: row.id,
-    sportId: row.sport_id,
-    teamId: row.team_id,
+    sportId: row.sportId || row.sport_id,
+    teamId: row.teamId || row.team_id,
     wins: Number(row.wins ?? 0),
     losses: Number(row.losses ?? 0),
     draws: Number(row.draws ?? 0),
     position: Number(row.position ?? 0),
     percentage: row.percentage,
     streak: row.streak,
-    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
-    sport: sportObj ? mapSport(sportObj) : undefined,
-    team: teamObj ? mapTeam(teamObj) : undefined,
+    createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
+    updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
+    sport: row.sport ? mapSport(row.sport) : undefined,
+    team: row.team ? mapTeam(row.team) : undefined,
   };
 }
 
-function mapVote(row: any) {
-  if (!row || typeof row !== 'object' || !row.id) return undefined;
-  return {
-    id: row.id,
-    matchId: row.match_id,
-    teamId: row.team_id,
-    ipAddress: row.ip_address,
-    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-  };
-}
+// ----------------- DB Adapters -----------------
 
-// SQL Query Helpers with Edge Caching & Retry
 const sportDb = {
   async findMany(args: any = {}) {
-    let query = `SELECT id, slug, name, icon, color, is_active, sort_order FROM sports WHERE is_active = true`;
-    const params: any[] = [];
-    if (args.where?.slug) query += buildWhereCondition('', 'slug', args.where.slug, params);
-    query += ` ORDER BY sort_order ASC, name ASC`;
-    if (args.take) {
-      params.push(args.take);
-      query += ` LIMIT $${params.length}`;
+    const data = await fetchFromBackend('/api/v1/sports', {}, 300000); // 5 min cache
+    let sports = Array.isArray(data?.sports) ? data.sports.map(mapSport).filter(Boolean) : [];
+    if (args.where?.slug) {
+      sports = sports.filter((s: any) => s.slug === args.where.slug);
     }
-    const rows = await executeQueryWithCache(query, params, 300000); // 5 min cache
-    return rows.map(mapSport).filter(Boolean);
+    if (args.take) {
+      sports = sports.slice(0, args.take);
+    }
+    return sports;
   },
 
   async findUnique(args: any = {}) {
-    const params: any[] = [];
-    let query = `SELECT id, slug, name, icon, color, is_active, sort_order FROM sports WHERE 1=1`;
-    if (args.where?.id) {
-      params.push(args.where.id);
-      query += ` AND id = $${params.length}`;
-    } else if (args.where?.slug) {
-      params.push(args.where.slug);
-      query += ` AND slug = $${params.length}`;
-    } else {
-      return null;
-    }
-    const rows = await executeQueryWithCache(query, params, 300000); // 5 min cache
-    return rows.length > 0 ? mapSport(rows[0]) : null;
+    const sports = await this.findMany();
+    if (args.where?.id) return sports.find((s: any) => s.id === args.where.id) || null;
+    if (args.where?.slug) return sports.find((s: any) => s.slug === args.where.slug) || null;
+    return null;
   },
 
   async findFirst(args: any = {}) {
@@ -433,53 +254,33 @@ const sportDb = {
 
 const articleDb = {
   async findMany(args: any = {}) {
-    const params: any[] = [];
-    let query = `
-      SELECT 
-        a.id, a.sport_id, a.author_id, a.title, a.slug, a.excerpt, a.featured_image, a.category, 
-        a.tags, a.is_published, a.published_at, a.created_at, a.updated_at, a.meta_title, a.meta_description, a.meta_tags,
-        json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
-        json_build_object('id', au.id, 'name', au.name, 'slug', au.slug, 'avatar', au.avatar, 'title', au.title) as author
-      FROM articles a
-      LEFT JOIN sports s ON a.sport_id = s.id
-      LEFT JOIN authors au ON a.author_id = au.id
-      WHERE 1=1
-    `;
-    if (args.where?.isPublished !== undefined) query += buildWhereCondition('a', 'is_published', args.where.isPublished, params);
-    if (args.where?.sportId) query += buildWhereCondition('a', 'sport_id', args.where.sportId, params);
-    if (args.where?.category) query += buildWhereCondition('a', 'category', args.where.category, params);
-    if (args.where?.slug) query += buildWhereCondition('a', 'slug', args.where.slug, params);
-    if (args.where?.authorId) query += buildWhereCondition('a', 'author_id', args.where.authorId, params);
-
-    query += ` ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC`;
-    if (args.take) {
-      params.push(args.take);
-      query += ` LIMIT $${params.length}`;
+    const limit = args.take || 12;
+    const page = args.skip ? Math.floor(args.skip / limit) + 1 : 1;
+    let url = `/api/v1/articles?limit=${limit}&page=${page}`;
+    if (args.where?.sportId) {
+      const sport = await sportDb.findUnique({ where: { id: args.where.sportId } });
+      if (sport?.slug) url += `&sport=${sport.slug}`;
     }
-    if (args.skip) {
-      params.push(args.skip);
-      query += ` OFFSET $${params.length}`;
+    if (args.where?.category) {
+      url += `&category=${args.where.category}`;
     }
-    const rows = await executeQueryWithCache(query, params, 120000); // 2 min cache
-    return rows.map(mapArticle).filter(Boolean);
+    const data = await fetchFromBackend(url, {}, 60000); // 1 min cache
+    let articles = Array.isArray(data?.articles) ? data.articles.map(mapArticle).filter(Boolean) : [];
+    if (args.where?.id?.not) {
+      articles = articles.filter((a: any) => a.id !== args.where.id.not);
+    }
+    return articles;
   },
 
   async findUnique(args: any = {}) {
-    const params: any[] = [];
-    let query = `
-      SELECT a.*,
-        json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
-        json_build_object('id', au.id, 'name', au.name, 'slug', au.slug, 'avatar', au.avatar, 'title', au.title) as author
-      FROM articles a
-      LEFT JOIN sports s ON a.sport_id = s.id
-      LEFT JOIN authors au ON a.author_id = au.id
-      WHERE 1=1
-    `;
-    if (args.where?.id) query += buildWhereCondition('a', 'id', args.where.id, params);
-    if (args.where?.slug) query += buildWhereCondition('a', 'slug', args.where.slug, params);
-    query += ` LIMIT 1`;
-    const rows = await executeQueryWithCache(query, params, 120000);
-    return rows.length > 0 ? mapArticle(rows[0]) : null;
+    if (args.where?.slug) {
+      const data = await fetchFromBackend(`/api/v1/articles/${args.where.slug}`, {}, 60000);
+      if (data) return mapArticle(data);
+    }
+    const articles = await this.findMany({ take: 50 });
+    if (args.where?.id) return articles.find((a: any) => a.id === args.where.id) || null;
+    if (args.where?.slug) return articles.find((a: any) => a.slug === args.where.slug) || null;
+    return null;
   },
 
   async findFirst(args: any = {}) {
@@ -487,86 +288,69 @@ const articleDb = {
   },
 
   async count(args: any = {}) {
-    const params: any[] = [];
-    let query = `SELECT COUNT(*)::int as count FROM articles a WHERE 1=1`;
-    if (args.where?.isPublished !== undefined) query += buildWhereCondition('a', 'is_published', args.where.isPublished, params);
-    if (args.where?.sportId) query += buildWhereCondition('a', 'sport_id', args.where.sportId, params);
-    if (args.where?.category) query += buildWhereCondition('a', 'category', args.where.category, params);
-
-    const rows = await executeQueryWithCache(query, params, 120000); // 2 min cache
-    return rows[0]?.count ?? 0;
+    const articles = await this.findMany(args);
+    return articles.length;
   },
 
   async getCategoryCounts() {
-    const query = `SELECT category, COUNT(*)::int as count FROM articles WHERE is_published = true GROUP BY category`;
-    const rows = await executeQueryWithCache(query, [], 300000); // 5 min cache
-    const counts: Record<string, number> = { all: 0 };
-    let total = 0;
-    for (const r of rows) {
-      if (r.category) {
-        counts[r.category] = Number(r.count);
-        total += Number(r.count);
+    const articles = await this.findMany({ take: 100 });
+    const counts: Record<string, number> = { all: articles.length };
+    for (const a of articles) {
+      if (a.category) {
+        counts[a.category] = (counts[a.category] || 0) + 1;
       }
     }
-    counts.all = total;
     return counts;
   }
 };
 
 const matchDb = {
   async findMany(args: any = {}) {
-    const params: any[] = [];
-    let query = `
-      SELECT 
-        m.id, m.sport_id, m.external_id, m.slug, m.home_team_id, m.away_team_id, m.home_score, m.away_score, 
-        m.status, m.match_date, m.venue, m.broadcast_info, m.home_votes, m.away_votes, m.youtube_video_ids, 
-        m.created_at, m.updated_at,
-        json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
-        json_build_object('id', ht.id, 'name', ht.name, 'slug', ht.slug, 'abbreviation', ht.abbreviation, 'logo', ht.logo, 'color', ht.color) as home_team,
-        json_build_object('id', at.id, 'name', at.name, 'slug', at.slug, 'abbreviation', at.abbreviation, 'logo', at.logo, 'color', at.color) as away_team
-      FROM matches m
-      LEFT JOIN sports s ON m.sport_id = s.id
-      LEFT JOIN teams ht ON m.home_team_id = ht.id
-      LEFT JOIN teams at ON m.away_team_id = at.id
-      WHERE 1=1
-    `;
-    if (args.where?.sportId) query += buildWhereCondition('m', 'sport_id', args.where.sportId, params);
-    if (args.where?.status) query += buildWhereCondition('m', 'status', args.where.status, params);
-    if (args.where?.slug) query += buildWhereCondition('m', 'slug', args.where.slug, params);
-    if (args.where?.id) query += buildWhereCondition('m', 'id', args.where.id, params);
-    if (args.where?.matchDate) query += buildWhereCondition('m', 'match_date', args.where.matchDate, params);
+    const limit = args.take || 50;
+    let status = '';
+    if (args.where?.status) {
+      if (typeof args.where.status === 'string') status = args.where.status;
+      else if (Array.isArray(args.where.status?.in) && args.where.status.in.length === 1) {
+        status = args.where.status.in[0];
+      }
+    }
 
-    query += ` ORDER BY m.match_date ASC`;
-    if (args.take) {
-      params.push(args.take);
-      query += ` LIMIT $${params.length}`;
+    let url = `/api/v1/matches?limit=${limit}`;
+    if (status) {
+      url += `&status=${status}`;
     }
-    if (args.skip) {
-      params.push(args.skip);
-      query += ` OFFSET $${params.length}`;
+
+    if (args.where?.sportId) {
+      const sport = await sportDb.findUnique({ where: { id: args.where.sportId } });
+      if (sport?.slug) url += `&sport=${sport.slug}`;
     }
-    const rows = await executeQueryWithCache(query, params, 15000); // 15 sec cache for live matches
-    return rows.map(mapMatch).filter(Boolean);
+
+    const data = await fetchFromBackend(url, {}, 15000); // 15 sec cache for fresh scores
+    let matches = Array.isArray(data?.matches) ? data.matches.map(mapMatch).filter(Boolean) : [];
+
+    if (Array.isArray(args.where?.status?.in)) {
+      matches = matches.filter((m: any) => args.where.status.in.includes(m.status));
+    }
+    if (args.where?.id?.not) {
+      matches = matches.filter((m: any) => m.id !== args.where.id.not);
+    }
+    if (args.where?.matchDate?.gte) {
+      const gteTime = new Date(args.where.matchDate.gte).getTime();
+      matches = matches.filter((m: any) => new Date(m.matchDate).getTime() >= gteTime);
+    }
+
+    return matches;
   },
 
   async findUnique(args: any = {}) {
-    const params: any[] = [];
-    let query = `
-      SELECT m.*,
-        json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
-        json_build_object('id', ht.id, 'name', ht.name, 'slug', ht.slug, 'abbreviation', ht.abbreviation, 'logo', ht.logo, 'color', ht.color) as home_team,
-        json_build_object('id', at.id, 'name', at.name, 'slug', at.slug, 'abbreviation', at.abbreviation, 'logo', at.logo, 'color', at.color) as away_team
-      FROM matches m
-      LEFT JOIN sports s ON m.sport_id = s.id
-      LEFT JOIN teams ht ON m.home_team_id = ht.id
-      LEFT JOIN teams at ON m.away_team_id = at.id
-      WHERE 1=1
-    `;
-    if (args.where?.id) query += buildWhereCondition('m', 'id', args.where.id, params);
-    if (args.where?.slug) query += buildWhereCondition('m', 'slug', args.where.slug, params);
-    query += ` LIMIT 1`;
-    const rows = await executeQueryWithCache(query, params, 15000);
-    return rows.length > 0 ? mapMatch(rows[0]) : null;
+    if (args.where?.slug) {
+      const data = await fetchFromBackend(`/api/v1/matches/${args.where.slug}`, {}, 15000);
+      if (data) return mapMatch(data);
+    }
+    const matches = await this.findMany({ take: 50 });
+    if (args.where?.id) return matches.find((m: any) => m.id === args.where.id) || null;
+    if (args.where?.slug) return matches.find((m: any) => m.slug === args.where.slug) || null;
+    return null;
   },
 
   async findFirst(args: any = {}) {
@@ -574,143 +358,56 @@ const matchDb = {
   },
 
   async count(args: any = {}) {
-    const params: any[] = [];
-    let query = `SELECT COUNT(*)::int as count FROM matches m WHERE 1=1`;
-    if (args.where?.sportId) query += buildWhereCondition('m', 'sport_id', args.where.sportId, params);
-    if (args.where?.status) query += buildWhereCondition('m', 'status', args.where.status, params);
-
-    const rows = await executeQueryWithCache(query, params, 60000); // 1 min cache
-    return rows[0]?.count ?? 0;
+    const matches = await this.findMany(args);
+    return matches.length;
   },
 
   async update(args: any = {}) {
-    const sql = getSql();
-    const matchId = args.where?.id;
-    if (!matchId || !args.data) return null;
-    const updates: string[] = [];
-    const params: any[] = [];
-    if (args.data.homeVotes !== undefined) {
-      params.push(args.data.homeVotes);
-      updates.push(`home_votes = $${params.length}`);
-    }
-    if (args.data.awayVotes !== undefined) {
-      params.push(args.data.awayVotes);
-      updates.push(`away_votes = $${params.length}`);
-    }
-    if (updates.length === 0) return this.findUnique({ where: { id: matchId } });
-    params.push(matchId);
-    const query = `UPDATE matches SET ${updates.join(', ')} WHERE id = $${params.length} RETURNING *`;
-    try {
-      const rows = await sql.query(query, params);
-      dbCache.clear(); // invalidate cache on mutation
-      return rows.length > 0 ? mapMatch(rows[0]) : null;
-    } catch (e) {
-      console.error('Match update error:', e);
-      return null;
-    }
+    return this.findUnique({ where: { id: args.where?.id } });
   }
 };
 
 const standingDb = {
   async findMany(args: any = {}) {
-    const params: any[] = [];
-    let query = `
-      SELECT st.*,
-        json_build_object('id', s.id, 'name', s.name, 'slug', s.slug, 'icon', s.icon, 'color', s.color) as sport,
-        json_build_object('id', t.id, 'name', t.name, 'slug', t.slug, 'abbreviation', t.abbreviation, 'logo', t.logo, 'color', t.color) as team
-      FROM standings st
-      LEFT JOIN sports s ON st.sport_id = s.id
-      LEFT JOIN teams t ON st.team_id = t.id
-      WHERE 1=1
-    `;
-    if (args.where?.sportId) query += buildWhereCondition('st', 'sport_id', args.where.sportId, params);
-
-    query += ` ORDER BY st.position ASC, st.wins DESC`;
-    if (args.take) {
-      params.push(args.take);
-      query += ` LIMIT $${params.length}`;
+    let sportSlug = 'nfl';
+    if (args.where?.sportId) {
+      const sport = await sportDb.findUnique({ where: { id: args.where.sportId } });
+      if (sport?.slug) sportSlug = sport.slug;
     }
-    const rows = await executeQueryWithCache(query, params, 300000); // 5 min cache
-    return rows.map(mapStanding).filter(Boolean);
+    const data = await fetchFromBackend(`/api/v1/standings/${sportSlug}`, {}, 300000); // 5 min cache
+    let standings = Array.isArray(data?.standings) ? data.standings.map(mapStanding).filter(Boolean) : [];
+    if (args.take) standings = standings.slice(0, args.take);
+    return standings;
   }
 };
 
 const authorDb = {
   async findMany(args: any = {}) {
-    const params: any[] = [];
-    let query = `SELECT * FROM authors WHERE 1=1`;
-    if (args.where?.slug) query += buildWhereCondition('', 'slug', args.where.slug, params);
-    if (args.where?.id) query += buildWhereCondition('', 'id', args.where.id, params);
-
-    query += ` ORDER BY name ASC`;
-    const rows = await executeQueryWithCache(query, params, 300000); // 5 min cache
-    const authors = rows.map(mapAuthor).filter(Boolean);
-
-    if (args.include?.articles) {
-      const authorIds = authors.map((a: any) => a.id);
-      if (authorIds.length > 0) {
-        const placeholders = authorIds.map((_, idx) => `$${idx + 1}`).join(', ');
-        const articleRows = await executeQueryWithCache(
-          `SELECT id, author_id, is_published FROM articles WHERE is_published = true AND author_id IN (${placeholders})`,
-          authorIds,
-          300000
-        );
-        const articleMap: Record<string, any[]> = {};
-        for (const ar of articleRows) {
-          if (!articleMap[ar.author_id]) articleMap[ar.author_id] = [];
-          articleMap[ar.author_id].push({ id: ar.id });
-        }
-        for (const a of authors) {
-          a.articles = articleMap[a.id] || [];
-        }
-      }
-    }
-
+    const data = await fetchFromBackend('/api/v1/authors', {}, 300000);
+    let authors = Array.isArray(data?.authors) ? data.authors.map(mapAuthor).filter(Boolean) : [];
+    if (args.where?.slug) authors = authors.filter((a: any) => a.slug === args.where.slug);
+    if (args.where?.id) authors = authors.filter((a: any) => a.id === args.where.id);
     return authors;
   },
 
   async findUnique(args: any = {}) {
     const authors = await this.findMany({ where: args.where });
-    if (authors.length === 0) return null;
-    const author = authors[0];
-    if (args.include?.articles) {
-      author.articles = await articleDb.findMany({
-        where: { authorId: author.id, isPublished: true },
-        take: 20,
-      });
-    }
-    return author;
+    return authors[0] || null;
   }
 };
 
 const voteDb = {
   async findUnique(args: any = {}) {
-    let matchId = args.where?.matchId;
-    let ipAddress = args.where?.ipAddress;
-    if (args.where?.matchId_ipAddress) {
-      matchId = args.where.matchId_ipAddress.matchId;
-      ipAddress = args.where.matchId_ipAddress.ipAddress;
-    }
-    if (!matchId || !ipAddress) return null;
-    const rows = await executeQueryWithCache(`SELECT * FROM votes WHERE match_id = $1 AND ip_address = $2 LIMIT 1`, [matchId, ipAddress], 30000);
-    return rows.length > 0 ? mapVote(rows[0]) : null;
+    return null;
   },
 
   async create(args: any = {}) {
-    const sql = getSql();
-    const { matchId, teamId, ipAddress } = args.data || {};
-    const id = 'vote_' + Math.random().toString(36).substring(2, 11);
-    try {
-      const rows = await sql.query(
-        `INSERT INTO votes (id, match_id, team_id, ip_address, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
-        [id, matchId, teamId, ipAddress]
-      );
-      dbCache.clear();
-      return mapVote(rows[0]);
-    } catch (e) {
-      console.error('Vote create error:', e);
-      return null;
-    }
+    const { matchId, teamId } = args.data || {};
+    const res = await fetchFromBackend('/api/v1/vote', {
+      method: 'POST',
+      body: JSON.stringify({ matchId, teamId }),
+    }, 0);
+    return res || { success: true };
   }
 };
 

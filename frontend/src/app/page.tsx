@@ -128,21 +128,21 @@ export default async function HomePage() {
 
   const standingsBySport: Record<string, typeof standings> = {};
   standings.forEach(s => {
-    const sportSlug = s.sport.slug;
+    const sportSlug = s?.sport?.slug || 'other';
     if (!standingsBySport[sportSlug]) standingsBySport[sportSlug] = [];
     standingsBySport[sportSlug].push(s);
   });
 
   const upcomingBySport: Record<string, typeof upcomingMatches> = {};
   upcomingMatches.forEach(m => {
-    const sportSlug = m.sport.slug;
+    const sportSlug = m?.sport?.slug || 'other';
     if (!upcomingBySport[sportSlug]) upcomingBySport[sportSlug] = [];
     upcomingBySport[sportSlug].push(m);
   });
 
   const finishedBySport: Record<string, typeof finishedMatches> = {};
   finishedMatches.forEach(m => {
-    const sportSlug = m.sport.slug;
+    const sportSlug = m?.sport?.slug || 'other';
     if (!finishedBySport[sportSlug]) finishedBySport[sportSlug] = [];
     finishedBySport[sportSlug].push(m);
   });

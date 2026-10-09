@@ -8,6 +8,8 @@ from sqlalchemy.pool import NullPool
 from app.config import settings
 
 
+from sqlalchemy import event
+
 connect_args = {}
 if "sqlite" in settings.DATABASE_URL:
     connect_args["check_same_thread"] = False
@@ -18,6 +20,14 @@ if "sqlite" in settings.DATABASE_URL:
         pool_pre_ping=True,
         pool_recycle=300,
     )
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 else:
     connect_args["ssl"] = "require"
     engine = create_async_engine(

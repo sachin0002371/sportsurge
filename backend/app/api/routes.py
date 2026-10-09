@@ -21,6 +21,7 @@ from app.services.data_service import (
     get_matches,
     get_match_by_slug,
     get_articles,
+    get_article_by_slug,
     get_standings,
     record_vote,
 )
@@ -187,6 +188,18 @@ async def list_articles(
 ):
     """Get published articles."""
     return await get_articles(db, sport, limit, page)
+
+
+@router.get("/articles/{slug}")
+async def get_article(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single article by slug."""
+    article = await get_article_by_slug(db, slug)
+    if not article:
+        raise HTTPException(404, "Article not found")
+    return article
 
 
 @router.post("/generate-article")
