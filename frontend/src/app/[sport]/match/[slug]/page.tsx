@@ -18,8 +18,7 @@ interface MatchPageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0; // Fresh match details
+export const revalidate = 60; // 1 min ISR on Cloudflare CDN
 
 const getMatch = cache(async (slug: string) => {
   try {

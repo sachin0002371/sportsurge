@@ -8,8 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0; // Fresh live scores
+export const revalidate = 60; // 1 min ISR on Cloudflare CDN
 
 interface SportPageProps {
   params: Promise<{ sport: string }>;

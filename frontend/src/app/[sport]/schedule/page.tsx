@@ -9,8 +9,7 @@ interface SchedulePageProps {
   params: Promise<{ sport: string }>;
 }
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0; // Fresh schedule
+export const revalidate = 300; // 5 min ISR on Cloudflare CDN
 
 export async function generateStaticParams() {
   try {

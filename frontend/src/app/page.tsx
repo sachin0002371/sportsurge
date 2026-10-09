@@ -12,8 +12,7 @@ import { formatDate, formatTime } from '@/lib/utils';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export const revalidate = 60; // Cache on Cloudflare Edge CDN for 60 seconds (prevents Error 1102)
 
 export const metadata = {
   title: 'Sportsurge Official – Fast Live Scores, Fixtures & Sports Coverage',

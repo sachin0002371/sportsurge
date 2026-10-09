@@ -15,6 +15,7 @@
     "enabled": true
   },
   "vars": {
-    "BACKEND_URL": "https://sportsurgebackend-sportsurgebackend-krhn-babfc1-91-98-46-3.sslip.io"
+    "BACKEND_URL": "https://backend.sportsurgeplay.com",
+    "DATABASE_URL": "postgresql://neondb_owner:npg_MANZ9RS4QUad@ep-billowing-paper-asl1j3hb.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require"
   }
 }
