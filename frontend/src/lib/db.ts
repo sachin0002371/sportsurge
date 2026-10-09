@@ -159,14 +159,14 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
         try {
           const sql = getSql();
           if (!sql) return;
-          const rows = await runWithTimeout(sql.query(queryStr, params), 2500);
+          const rows = await runWithTimeout(sql.query(queryStr, params), 10000);
           if (Array.isArray(rows) && rows.length > 0) {
             dbCache.set(cacheKey, { data: rows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
             resetCircuit();
           }
         } catch (e: any) {
-          if (e?.message?.includes('authentication failed') || e?.message?.includes('fetch failed')) {
-            tripCircuit(20000);
+          if (e?.message?.includes('authentication failed')) {
+            tripCircuit(15000);
           }
         } finally {
           inFlightQueries.delete(cacheKey);
@@ -177,7 +177,7 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
     return cached.data;
   }
 
-  // 4. Deduplicate concurrent in-flight requests for the same query to prevent DB hammering
+  // 3. Deduplicate concurrent in-flight requests for the same query to prevent DB hammering
   if (inFlightQueries.has(cacheKey)) {
     try {
       const rows = await inFlightQueries.get(cacheKey)!;
@@ -193,7 +193,6 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
     let lastError: any = null;
 
     if (isCircuitOpen()) {
-      if (Array.isArray(sqliteRows)) return sqliteRows;
       return cached?.data || [];
     }
 
@@ -201,14 +200,14 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
       const sql = getSql();
       if (sql) {
         try {
-          rows = await runWithTimeout(sql.query(queryStr, params), 2500);
+          rows = await runWithTimeout(sql.query(queryStr, params), 10000);
           if (Array.isArray(rows)) {
             resetCircuit();
           }
         } catch (err: any) {
           lastError = err;
-          if (err?.message?.includes('authentication failed') || err?.message?.includes('fetch failed') || err?.message?.includes('timeout')) {
-            tripCircuit(20000);
+          if (err?.message?.includes('authentication failed')) {
+            tripCircuit(15000);
           }
         }
       }

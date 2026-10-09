@@ -18,7 +18,8 @@ interface MatchPageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
-export const revalidate = 600; // Cache for 10 minutes
+export const dynamic = 'force-dynamic';
+export const revalidate = 0; // Fresh match details
 
 const getMatch = cache(async (slug: string) => {
   try {
