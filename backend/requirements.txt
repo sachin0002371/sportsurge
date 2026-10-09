@@ -36,11 +36,3 @@ passlib[bcrypt]==1.7.4
 
 # Environment
 python-dotenv==1.0.1
-
-# v3.0 New Dependencies
-# Google Trends (trending_service.py)
-pytrends==4.9.2
-
-# Pexels API (image_service.py) - using httpx directly, no extra package needed
-
-# Image processing already covered by Pillow above
