@@ -188,56 +188,67 @@ With multiple top-ten showdowns scheduled this month, college football fans are 
 
 
 async def ensure_initial_articles(db: AsyncSession) -> int:
-    """Ensure a rich initial set of articles exists across all sports."""
+    """Ensure all 95+ rich articles exist across all sports."""
+    import os
     sports = await ensure_sports(db)
     authors = await ensure_authors(db)
 
-    count_stmt = select(Article)
-    existing_count = len((await db.execute(count_stmt)).scalars().all())
-    
+    articles_to_seed = []
+    json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "articles_data.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                articles_to_seed = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read articles_data.json: {e}")
+
+    if not articles_to_seed:
+        articles_to_seed = INITIAL_ARTICLES
+
     seeded = 0
     from datetime import timedelta
     now = datetime.utcnow()
 
-    for idx, item in enumerate(INITIAL_ARTICLES):
-        slug = slugify(item["title"])
+    for idx, item in enumerate(articles_to_seed):
+        slug = item.get("slug") or slugify(item["title"])
         stmt = select(Article).where(Article.slug == slug)
         existing = (await db.execute(stmt)).scalar_one_or_none()
         if existing:
             continue
 
-        sport = sports.get(item["sport_slug"])
-        author = authors.get(item["author_slug"]) or (list(authors.values())[0] if authors else None)
+        sport = sports.get(item.get("sport_slug", "nba"))
+        author = authors.get(item.get("author_slug", "marcus-johnson")) or (list(authors.values())[0] if authors else None)
 
         if not sport or not author:
             continue
 
-        pub_time = now - timedelta(hours=idx * 6)
+        pub_time = now - timedelta(hours=idx * 4)
+        excerpt = item.get("excerpt") or (item["content"][:160] + "...")
         article = Article(
             id=str(uuid4()),
             sport_id=sport.id,
             author_id=author.id,
             title=item["title"],
             slug=slug,
-            excerpt=item["content"][:160] + "...",
+            excerpt=excerpt,
             content=item["content"],
-            featured_image=item["featured_image"],
-            category=item["category"],
-            tags=item["sport_slug"],
+            featured_image=item.get("featured_image") or f"https://picsum.photos/seed/{slug}/1200/630",
+            category=item.get("category", "analysis"),
+            tags=item.get("tags") or item.get("sport_slug", "sports"),
             is_published=True,
             published_at=pub_time,
             created_at=pub_time,
             updated_at=pub_time,
-            meta_title=f"{item['title']} | SportSurge",
-            meta_description=item["content"][:155],
-            meta_tags=f"{item['sport_slug']}, sports, analysis, sportsurge",
+            meta_title=item.get("meta_title") or f"{item['title']} | SportSurge",
+            meta_description=item.get("meta_description") or excerpt[:155],
+            meta_tags=item.get("meta_tags") or f"{item.get('sport_slug', 'sports')}, sports, analysis, sportsurge",
         )
         db.add(article)
         seeded += 1
 
     if seeded > 0:
         await db.commit()
-        logger.info(f"Seeded {seeded} initial rich articles into database")
+        logger.info(f"Seeded {seeded} articles into database")
 
     return seeded
 
