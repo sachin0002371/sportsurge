@@ -12,7 +12,8 @@ import { formatDate, formatTime } from '@/lib/utils';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
-export const revalidate = 900; // Cache for 15 minutes
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export const metadata = {
   title: 'Sportsurge Official – Fast Live Scores, Fixtures & Sports Coverage',
@@ -65,10 +66,13 @@ export default async function HomePage() {
   try {
     [matches, articles, standings, sports, finishedMatches] = await Promise.all([
       db.match.findMany({
-        where: { status: { in: ['live', 'upcoming'] } },
+        where: {
+          status: { in: ['live', 'upcoming'] },
+          matchDate: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
+        },
         include: { homeTeam: true, awayTeam: true, sport: true },
         orderBy: { matchDate: 'asc' },
-        take: 20,
+        take: 30,
       }),
       db.article.findMany({
         where: { isPublished: true },

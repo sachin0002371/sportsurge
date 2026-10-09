@@ -8,7 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
-export const revalidate = 900; // Cache for 15 minutes
+export const dynamic = 'force-dynamic';
+export const revalidate = 0; // Fresh live scores
 
 interface SportPageProps {
   params: Promise<{ sport: string }>;
@@ -93,7 +94,7 @@ export default async function SportPage({ params }: SportPageProps) {
 
       liveMatches = allSportMatches.filter((m: any) => m.status === 'live');
       upcomingMatches = allSportMatches
-        .filter((m: any) => m.status === 'upcoming')
+        .filter((m: any) => m.status === 'upcoming' && new Date(m.matchDate).getTime() >= Date.now() - 6 * 3600 * 1000)
         .sort((a: any, b: any) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime())
         .slice(0, 10);
       finishedMatches = allSportMatches.filter((m: any) => m.status === 'finished').slice(0, 10);

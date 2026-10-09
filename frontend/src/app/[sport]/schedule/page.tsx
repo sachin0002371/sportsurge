@@ -9,7 +9,8 @@ interface SchedulePageProps {
   params: Promise<{ sport: string }>;
 }
 
-export const revalidate = 1800; // Cache for 30 minutes
+export const dynamic = 'force-dynamic';
+export const revalidate = 0; // Fresh schedule
 
 export async function generateStaticParams() {
   try {
@@ -45,7 +46,11 @@ export default async function SchedulePage({ params }: SchedulePageProps) {
     sport = await db.sport.findUnique({ where: { slug: sportSlug } });
     if (sport) {
       matches = await db.match.findMany({
-        where: { sportId: sport.id, status: 'upcoming' },
+        where: {
+          sportId: sport.id,
+          status: 'upcoming',
+          matchDate: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
+        },
         include: { homeTeam: true, awayTeam: true, sport: true },
         orderBy: { matchDate: 'asc' },
       });

@@ -171,6 +171,58 @@ async def fetch_and_store_matches(db: AsyncSession, sport_slug: str) -> dict:
             errors += 1
             continue
 
+    # Auto-cleanup stale matches for this sport:
+    # 1. Matches marked 'live' that are not in current ESPN live response and started > 4 hours ago -> finished
+    # 2. Matches marked 'upcoming' whose match_date is in the past (> 12 hours ago) -> finished
+    try:
+        from datetime import timedelta
+        four_hours_ago = datetime.utcnow() - timedelta(hours=4)
+        twelve_hours_ago = datetime.utcnow() - timedelta(hours=12)
+        
+        current_event_ids = [str(e.get("id")) for e in data.get("events", []) if e.get("id")]
+        
+        # Cleanup past live matches
+        if current_event_ids:
+            await db.execute(
+                update(Match)
+                .where(
+                    and_(
+                        Match.sport_id == sport.id,
+                        Match.status == "live",
+                        Match.external_id.notin_(current_event_ids),
+                        Match.match_date < four_hours_ago,
+                    )
+                )
+                .values(status="finished", updated_at=datetime.utcnow())
+            )
+        else:
+            await db.execute(
+                update(Match)
+                .where(
+                    and_(
+                        Match.sport_id == sport.id,
+                        Match.status == "live",
+                        Match.match_date < four_hours_ago,
+                    )
+                )
+                .values(status="finished", updated_at=datetime.utcnow())
+            )
+
+        # Cleanup past upcoming matches
+        await db.execute(
+            update(Match)
+            .where(
+                and_(
+                    Match.sport_id == sport.id,
+                    Match.status == "upcoming",
+                    Match.match_date < twelve_hours_ago,
+                )
+            )
+            .values(status="finished", updated_at=datetime.utcnow())
+        )
+    except Exception as cleanup_err:
+        logger.warning(f"Error during stale match cleanup for {sport_slug}: {cleanup_err}")
+
     await db.commit()
 
     return {

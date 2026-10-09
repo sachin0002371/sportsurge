@@ -150,15 +150,7 @@ async function executeQueryWithCache(queryStr: string, params: any[], ttlMs: num
     return cached.data;
   }
 
-  // 2. Fast-path: If local SQLite database is available, query locally in 0.1ms
-  const sqliteRows = querySqlite(queryStr, params);
-  if (Array.isArray(sqliteRows)) {
-    if (dbCache.size > 1000) dbCache.clear();
-    dbCache.set(cacheKey, { data: sqliteRows, expiresAt: Date.now() + ttlMs, updatedAt: Date.now() });
-    return sqliteRows;
-  }
-
-  // 3. True Stale-While-Revalidate (SWR):
+  // 2. True Stale-While-Revalidate (SWR):
   // If we have cached data (even if expired), return it IMMEDIATELY to the user so page loads in 0ms,
   // and trigger a silent background fetch to update the cache for subsequent requests.
   if (cached && Array.isArray(cached.data) && cached.data.length > 0) {
@@ -621,7 +613,7 @@ const matchDb = {
       params.push(args.skip);
       query += ` OFFSET $${params.length}`;
     }
-    const rows = await executeQueryWithCache(query, params, 300000); // 5 min cache
+    const rows = await executeQueryWithCache(query, params, 15000); // 15 sec cache for live matches
     return rows.map(mapMatch).filter(Boolean);
   },
 
@@ -641,7 +633,7 @@ const matchDb = {
     if (args.where?.id) query += buildWhereCondition('m', 'id', args.where.id, params);
     if (args.where?.slug) query += buildWhereCondition('m', 'slug', args.where.slug, params);
     query += ` LIMIT 1`;
-    const rows = await executeQueryWithCache(query, params, 300000);
+    const rows = await executeQueryWithCache(query, params, 15000);
     return rows.length > 0 ? mapMatch(rows[0]) : null;
   },
 
