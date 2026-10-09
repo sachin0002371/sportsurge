@@ -87,6 +87,161 @@ async def ensure_authors(db: AsyncSession) -> dict[str, Author]:
     return result
 
 
+INITIAL_ARTICLES = [
+    {
+        "title": "2026 NBA Championship Race: Tactical Evolution and Key Contenders",
+        "sport_slug": "nba",
+        "category": "analysis",
+        "author_slug": "marcus-hayes",
+        "featured_image": "https://images.pexels.com/photos/1752757/pexels-photo-1752757.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "content": """The 2026 NBA season is witnessing an unprecedented evolution in tactical execution. Teams are prioritizing positionless basketball, spacing, and transition efficiency over traditional isolation sets.
+
+As playoff contenders jockey for position in the Eastern and Western conferences, defensive versatility has emerged as the ultimate differentiator. Coaches are deploying switch-heavy schemes designed to neutralize elite pick-and-roll ballhandlers.
+
+Key championship contenders have bolstered their perimeter shooting, creating wider driving lanes for primary playmakers. As the postseason approaches, health, bench depth, and half-court execution in clutch minutes will decide who hoists the Larry O'Brien Trophy.""",
+    },
+    {
+        "title": "NFL Defense Breakdown: How Modern Schemes Are Countering High-Powered Offenses",
+        "sport_slug": "nfl",
+        "category": "analysis",
+        "author_slug": "derek-vance",
+        "featured_image": "https://images.pexels.com/photos/1618269/pexels-photo-1618269.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "content": """NFL defensive coordinators have innovated rapidly to counter explosive spread offenses. The widespread adoption of split-safety coverages and disguised two-high shells has forced quarterbacks into patient, underneath checkdowns.
+
+Pass-rush rotations are now deeper than ever, allowing front sevens to maintain unrelenting pressure in the fourth quarter. Edge rushers with inside-outside versatility are disrupting pocket integrity before deep routes can develop.
+
+With explosive play rates dropping across the league, offensive play-callers must embrace efficient run schemes and intermediate crossing routes to sustain scoring drives.""",
+    },
+    {
+        "title": "MLB Postseason Pitching Mastery: The Impact of High-Leverage Bullpens",
+        "sport_slug": "mlb",
+        "category": "analysis",
+        "author_slug": "elena-rostova",
+        "featured_image": "https://images.pexels.com/photos/209977/pexels-photo-209977.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "content": """Modern Major League Baseball postseason success is defined by bullpen usage. Starters are rarely asked to navigate a lineup three times, placing immense responsibility on high-leverage relief corps.
+
+Relievers throwing triple-digit four-seamers and devastating sweepers dominate late innings. Managers are deploying their best arms in crucial mid-game moments rather than strictly preserving them for traditional ninth-inning saves.
+
+Offenses that generate traffic via walks and timely power have the best odds of breaking through elite pitching rotations under October pressure.""",
+    },
+    {
+        "title": "NHL Stanley Cup Outlook: Speed, Transition and Goaltending Dominance",
+        "sport_slug": "nhl",
+        "category": "preview",
+        "author_slug": "alex-chen",
+        "featured_image": "https://images.pexels.com/photos/3621104/pexels-photo-3621104.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "content": """The NHL pace of play is faster than at any point in modern hockey history. Defensemen who can skate out of trouble and trigger transition offenses are in high demand across the league.
+
+Special teams efficiency remains the ultimate predictor of playoff advancement. Power-play units utilizing bumper plays and one-timer setups are punishing undisciplined opponents, while penalty-kill aggression creates shorthanded breakaways.
+
+Elite goaltending remains the great equalizer. Netminders with top-tier high-danger save percentages can single-handedly carry underdog teams deep into the Stanley Cup playoffs.""",
+    },
+    {
+        "title": "ICC T20 World Cup Strategy: Death Overs Hitting and Mystery Spin",
+        "sport_slug": "cricket",
+        "category": "analysis",
+        "author_slug": "tariq-mansoor",
+        "featured_image": "https://images.pexels.com/photos/3628912/pexels-photo-3628912.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "content": """International T20 cricket is reaching new statistical peaks with aggressive powerplay scoring and calculated death overs acceleration. Teams that maintain a 10+ run rate across the middle overs are consistently setting winning totals.
+
+Mystery spinners and wrist-spinners who turn the ball both ways without discernible change of action are proving vital in choking run flow. Field placements utilizing deep boundary riders on the leg side force batters into risky aerial strokes.
+
+All-rounders who contribute four economical overs and provide explosive lower-order finishing remain the most coveted assets in world cricket today.""",
+    },
+    {
+        "title": "Formula 1 Aerodynamic Battle: Key Upgrades Reshaping the Podium",
+        "sport_slug": "f1",
+        "category": "news",
+        "author_slug": "alex-chen",
+        "featured_image": "https://images.pexels.com/photos/12795/pexels-photo-12795.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "content": """The 2026 Formula 1 championship battle is intensifying as top constructors bring comprehensive aerodynamic upgrade packages. Floor modifications and revised sidepod inlets have tightened qualifying margins to under a tenth of a second.
+
+Tire degradation management across stints is defining race day strategy. Drivers who can preserve the soft and medium compounds while maintaining competitive lap times are capturing crucial undercut advantages during pit stops.
+
+With high-speed circuits on the horizon, top-speed efficiency and DRS effectiveness will decide who commands the championship lead.""",
+    },
+    {
+        "title": "UFC Championship Clashes: Wrestling Control vs Striking Precision",
+        "sport_slug": "mma",
+        "category": "preview",
+        "author_slug": "marcus-hayes",
+        "featured_image": "https://images.pexels.com/photos/4761792/pexels-photo-4761792.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "content": """Mixed Martial Arts title fights in 2026 continue to pit elite grappling styles against precision counter-strikers. Chain-wrestling and cage pressure remain the most dominant pathway to controlling championship rounds.
+
+However, elite strikers with disciplined takedown defense and brutal calf kicks are finding success neutralizing wrestlers before they close distance. Championship endurance over five rounds separates contenders from champions.
+
+Fans can expect high-stakes technical battles as the undisputed belts change hands in upcoming pay-per-view spectacles.""",
+    },
+    {
+        "title": "College Football Playoff Race: Powerhouse Programs Collide in Crucial Week",
+        "sport_slug": "ncaaf",
+        "category": "preview",
+        "author_slug": "derek-vance",
+        "featured_image": "https://images.pexels.com/photos/1618269/pexels-photo-1618269.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "content": """The expanded College Football Playoff format has amplified the drama of every single regular-season Saturday. Margin of victory, strength of schedule, and signature ranked wins are dictating committee evaluations.
+
+Elite quarterback play and red-zone touchdown efficiency remain the gold standards for title hopefuls. Defenses capable of forcing multi-turnover games against top-tier conference rivals hold the inside track to playoff bye seeds.
+
+With multiple top-ten showdowns scheduled this month, college football fans are set for one of the most unpredictable title races in collegiate athletics history.""",
+    }
+]
+
+
+async def ensure_initial_articles(db: AsyncSession) -> int:
+    """Ensure a rich initial set of articles exists across all sports."""
+    sports = await ensure_sports(db)
+    authors = await ensure_authors(db)
+
+    count_stmt = select(Article)
+    existing_count = len((await db.execute(count_stmt)).scalars().all())
+    
+    seeded = 0
+    from datetime import timedelta
+    now = datetime.utcnow()
+
+    for idx, item in enumerate(INITIAL_ARTICLES):
+        slug = slugify(item["title"])
+        stmt = select(Article).where(Article.slug == slug)
+        existing = (await db.execute(stmt)).scalar_one_or_none()
+        if existing:
+            continue
+
+        sport = sports.get(item["sport_slug"])
+        author = authors.get(item["author_slug"])
+
+        if not sport or not author:
+            continue
+
+        pub_time = now - timedelta(hours=idx * 6)
+        article = Article(
+            id=str(uuid4()),
+            sport_id=sport.id,
+            author_id=author.id,
+            title=item["title"],
+            slug=slug,
+            excerpt=item["content"][:160] + "...",
+            content=item["content"],
+            featured_image=item["featured_image"],
+            category=item["category"],
+            tags=item["sport_slug"],
+            is_published=True,
+            published_at=pub_time,
+            created_at=pub_time,
+            updated_at=pub_time,
+            meta_title=f"{item['title']} | SportSurge",
+            meta_description=item["content"][:155],
+            meta_tags=f"{item['sport_slug']}, sports, analysis, sportsurge",
+        )
+        db.add(article)
+        seeded += 1
+
+    if seeded > 0:
+        await db.commit()
+        logger.info(f"Seeded {seeded} initial rich articles into database")
+
+    return seeded
+
+
 async def fetch_and_store_matches(db: AsyncSession, sport_slug: str) -> dict:
     """
     Fetch matches from ESPN API and store/update in database.
@@ -639,6 +794,12 @@ def _match_to_dict(match: Match) -> dict:
     return {
         "id": match.id,
         "slug": match.slug,
+        "sportId": match.sport_id,
+        "sport_id": match.sport_id,
+        "homeTeamId": match.home_team_id,
+        "home_team_id": match.home_team_id,
+        "awayTeamId": match.away_team_id,
+        "away_team_id": match.away_team_id,
         "status": match.status,
         "homeScore": match.home_score,
         "awayScore": match.away_score,
@@ -659,6 +820,8 @@ def _match_to_dict(match: Match) -> dict:
 def _team_to_dict(team: Team) -> dict:
     return {
         "id": team.id,
+        "sportId": team.sport_id,
+        "sport_id": team.sport_id,
         "name": team.name,
         "abbreviation": team.abbreviation,
         "slug": team.slug,
@@ -681,6 +844,10 @@ def _sport_to_dict(sport: Sport) -> dict:
 def _article_to_dict(article: Article) -> dict:
     return {
         "id": article.id,
+        "sportId": article.sport_id,
+        "sport_id": article.sport_id,
+        "authorId": article.author_id,
+        "author_id": article.author_id,
         "title": article.title,
         "slug": article.slug,
         "excerpt": article.excerpt,
@@ -707,6 +874,10 @@ def _article_to_dict(article: Article) -> dict:
 def _standing_to_dict(standing: Standing) -> dict:
     return {
         "id": standing.id,
+        "sportId": standing.sport_id,
+        "sport_id": standing.sport_id,
+        "teamId": standing.team_id,
+        "team_id": standing.team_id,
         "wins": standing.wins,
         "losses": standing.losses,
         "draws": standing.draws,

@@ -49,11 +49,12 @@ async def lifespan(app: FastAPI):
 
     # Seed default data
     from app.database import async_session
-    from app.services.data_service import ensure_sports, ensure_authors
+    from app.services.data_service import ensure_sports, ensure_authors, ensure_initial_articles
     async with async_session() as db:
         await ensure_sports(db)
         await ensure_authors(db)
-        logger.info("Default sports and authors seeded")
+        await ensure_initial_articles(db)
+        logger.info("Default sports, authors, and initial articles verified/seeded")
 
     # Start scheduler (ENABLED by default in v3.0)
     try:

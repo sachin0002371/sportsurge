@@ -11,6 +11,26 @@ function getBackendUrl(): string {
   return url;
 }
 
+// Built-in zero-latency sports memory dictionary
+const DEFAULT_SPORTS = [
+  { id: 'nba', slug: 'nba', name: 'NBA', icon: 'basketball', color: '#C9082A', isActive: true, sortOrder: 1 },
+  { id: 'nfl', slug: 'nfl', name: 'NFL', icon: 'football', color: '#013369', isActive: true, sortOrder: 2 },
+  { id: 'mlb', slug: 'mlb', name: 'MLB', icon: 'baseball', color: '#041E42', isActive: true, sortOrder: 3 },
+  { id: 'nhl', slug: 'nhl', name: 'NHL', icon: 'hockey', color: '#000000', isActive: true, sortOrder: 4 },
+  { id: 'ncaaf', slug: 'ncaaf', name: 'NCAAF', icon: 'football', color: '#003B5C', isActive: true, sortOrder: 5 },
+  { id: 'ncaab', slug: 'ncaab', name: 'NCAAB', icon: 'basketball', color: '#C8102E', isActive: true, sortOrder: 6 },
+  { id: 'f1', slug: 'f1', name: 'Formula 1', icon: 'racing', color: '#E10600', isActive: true, sortOrder: 7 },
+  { id: 'mma', slug: 'mma', name: 'MMA', icon: 'fight', color: '#D20A0A', isActive: true, sortOrder: 8 },
+  { id: 'boxing', slug: 'boxing', name: 'Boxing', icon: 'boxing', color: '#8B0000', isActive: true, sortOrder: 9 },
+  { id: 'cricket', slug: 'cricket', name: 'Cricket', icon: 'cricket', color: '#004B23', isActive: true, sortOrder: 10 },
+];
+
+function getSportFromMemory(idOrSlug?: any) {
+  if (!idOrSlug || typeof idOrSlug !== 'string') return null;
+  const s = idOrSlug.toLowerCase();
+  return DEFAULT_SPORTS.find((item) => item.slug === s || item.id === s) || null;
+}
+
 // In-Memory Edge Cache & Deduplication
 interface CacheEntry {
   data: any;
@@ -45,7 +65,7 @@ async function fetchFromBackend(endpoint: string, options: RequestInit = {}, ttl
   const fetchPromise = (async () => {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
+      const timeout = setTimeout(() => controller.abort(), 5000);
 
       const res = await fetch(url, {
         ...options,
@@ -53,6 +73,7 @@ async function fetchFromBackend(endpoint: string, options: RequestInit = {}, ttl
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          'User-Agent': 'SportSurge-Edge/3.0',
           ...(options.headers || {}),
         },
         // Cloudflare CDN cache hints
@@ -107,14 +128,15 @@ function formatImageUrl(url: string | null | undefined): string | undefined {
 // Data formatters
 function mapSport(row: any) {
   if (!row) return null;
+  const memorySport = getSportFromMemory(row.slug || row.id);
   return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    icon: formatImageUrl(row.icon) || '',
-    color: row.color || '#374DF5',
+    id: row.id || memorySport?.id || row.slug,
+    slug: row.slug || memorySport?.slug || '',
+    name: row.name || memorySport?.name || '',
+    icon: formatImageUrl(row.icon) || memorySport?.icon || '',
+    color: row.color || memorySport?.color || '#374DF5',
     isActive: row.isActive ?? row.is_active ?? true,
-    sortOrder: Number(row.sortOrder ?? row.sort_order ?? 0),
+    sortOrder: Number(row.sortOrder ?? row.sort_order ?? memorySport?.sortOrder ?? 0),
   };
 }
 
@@ -155,9 +177,10 @@ function mapAuthor(row: any) {
 
 function mapArticle(row: any) {
   if (!row) return null;
+  const sportObj = row.sport ? mapSport(row.sport) : (getSportFromMemory(row.sportId || row.sport_id || row.tags) || undefined);
   return {
     id: row.id,
-    sportId: row.sportId || row.sport_id,
+    sportId: row.sportId || row.sport_id || sportObj?.id,
     authorId: row.authorId || row.author_id,
     title: row.title,
     slug: row.slug,
@@ -173,20 +196,21 @@ function mapArticle(row: any) {
     metaTitle: row.metaTitle || row.meta_title,
     metaDescription: row.metaDescription || row.meta_description,
     metaTags: row.metaTags || row.meta_tags,
-    sport: row.sport ? mapSport(row.sport) : undefined,
+    sport: sportObj,
     author: row.author ? mapAuthor(row.author) : undefined,
   };
 }
 
 function mapMatch(row: any) {
   if (!row) return null;
+  const sportObj = row.sport ? mapSport(row.sport) : (getSportFromMemory(row.sportId || row.sport_id) || undefined);
   return {
     id: row.id,
-    sportId: row.sportId || row.sport_id,
+    sportId: row.sportId || row.sport_id || sportObj?.id,
     externalId: row.externalId || row.external_id,
     slug: row.slug,
-    homeTeamId: row.homeTeamId || row.home_team_id,
-    awayTeamId: row.awayTeamId || row.away_team_id,
+    homeTeamId: row.homeTeamId || row.home_team_id || row.homeTeam?.id,
+    awayTeamId: row.awayTeamId || row.away_team_id || row.awayTeam?.id,
     homeScore: row.homeScore ?? row.home_score ?? null,
     awayScore: row.awayScore ?? row.away_score ?? null,
     status: row.status || 'upcoming',
@@ -200,7 +224,7 @@ function mapMatch(row: any) {
     seoContent: row.seoContent || row.seo_content,
     createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
     updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
-    sport: row.sport ? mapSport(row.sport) : undefined,
+    sport: sportObj,
     homeTeam: row.homeTeam ? mapTeam(row.homeTeam) : (row.home_team ? mapTeam(row.home_team) : undefined),
     awayTeam: row.awayTeam ? mapTeam(row.awayTeam) : (row.away_team ? mapTeam(row.away_team) : undefined),
   };
@@ -230,7 +254,7 @@ function mapStanding(row: any) {
 const sportDb = {
   async findMany(args: any = {}) {
     const data = await fetchFromBackend('/api/v1/sports', {}, 300000); // 5 min cache
-    let sports = Array.isArray(data?.sports) ? data.sports.map(mapSport).filter(Boolean) : [];
+    let sports = Array.isArray(data?.sports) ? data.sports.map(mapSport).filter(Boolean) : DEFAULT_SPORTS.map(mapSport);
     if (args.where?.slug) {
       sports = sports.filter((s: any) => s.slug === args.where.slug);
     }
@@ -241,6 +265,14 @@ const sportDb = {
   },
 
   async findUnique(args: any = {}) {
+    if (args.where?.slug) {
+      const mem = getSportFromMemory(args.where.slug);
+      if (mem) return mapSport(mem);
+    }
+    if (args.where?.id) {
+      const mem = getSportFromMemory(args.where.id);
+      if (mem) return mapSport(mem);
+    }
     const sports = await this.findMany();
     if (args.where?.id) return sports.find((s: any) => s.id === args.where.id) || null;
     if (args.where?.slug) return sports.find((s: any) => s.slug === args.where.slug) || null;
@@ -258,8 +290,13 @@ const articleDb = {
     const page = args.skip ? Math.floor(args.skip / limit) + 1 : 1;
     let url = `/api/v1/articles?limit=${limit}&page=${page}`;
     if (args.where?.sportId) {
-      const sport = await sportDb.findUnique({ where: { id: args.where.sportId } });
-      if (sport?.slug) url += `&sport=${sport.slug}`;
+      if (typeof args.where.sportId === 'string') {
+        const memSport = getSportFromMemory(args.where.sportId);
+        const sportSlug = memSport?.slug;
+        if (sportSlug) {
+          url += `&sport=${sportSlug}`;
+        }
+      }
     }
     if (args.where?.category) {
       url += `&category=${args.where.category}`;
@@ -268,6 +305,10 @@ const articleDb = {
     let articles = Array.isArray(data?.articles) ? data.articles.map(mapArticle).filter(Boolean) : [];
     if (args.where?.id?.not) {
       articles = articles.filter((a: any) => a.id !== args.where.id.not);
+    }
+    if (args.where?.sportId?.not) {
+      const notId = args.where.sportId.not;
+      articles = articles.filter((a: any) => a.sportId !== notId && a.sport?.slug !== notId && a.sport?.id !== notId);
     }
     return articles;
   },
@@ -321,8 +362,12 @@ const matchDb = {
     }
 
     if (args.where?.sportId) {
-      const sport = await sportDb.findUnique({ where: { id: args.where.sportId } });
-      if (sport?.slug) url += `&sport=${sport.slug}`;
+      if (typeof args.where.sportId === 'string') {
+        const memSport = getSportFromMemory(args.where.sportId);
+        if (memSport?.slug) {
+          url += `&sport=${memSport.slug}`;
+        }
+      }
     }
 
     const data = await fetchFromBackend(url, {}, 15000); // 15 sec cache for fresh scores
@@ -333,6 +378,10 @@ const matchDb = {
     }
     if (args.where?.id?.not) {
       matches = matches.filter((m: any) => m.id !== args.where.id.not);
+    }
+    if (args.where?.sportId?.not) {
+      const notId = args.where.sportId.not;
+      matches = matches.filter((m: any) => m.sportId !== notId && m.sport?.slug !== notId && m.sport?.id !== notId);
     }
     if (args.where?.matchDate?.gte) {
       const gteTime = new Date(args.where.matchDate.gte).getTime();
@@ -371,8 +420,12 @@ const standingDb = {
   async findMany(args: any = {}) {
     let sportSlug = 'nfl';
     if (args.where?.sportId) {
-      const sport = await sportDb.findUnique({ where: { id: args.where.sportId } });
-      if (sport?.slug) sportSlug = sport.slug;
+      if (typeof args.where.sportId === 'string') {
+        const memSport = getSportFromMemory(args.where.sportId);
+        if (memSport?.slug) {
+          sportSlug = memSport.slug;
+        }
+      }
     }
     const data = await fetchFromBackend(`/api/v1/standings/${sportSlug}`, {}, 300000); // 5 min cache
     let standings = Array.isArray(data?.standings) ? data.standings.map(mapStanding).filter(Boolean) : [];

@@ -18,6 +18,7 @@ from app.services.data_service import (
     update_youtube_videos,
     ensure_sports,
     ensure_authors,
+    ensure_initial_articles,
     get_matches,
     get_match_by_slug,
     get_articles,
@@ -200,6 +201,15 @@ async def get_article(
     if not article:
         raise HTTPException(404, "Article not found")
     return article
+
+
+@router.api_route("/seed-articles", methods=["GET", "POST"])
+async def seed_articles_endpoint(
+    db: AsyncSession = Depends(get_db),
+):
+    """Seed initial high-quality sports articles across all sports."""
+    count = await ensure_initial_articles(db)
+    return {"success": True, "articles_seeded": count}
 
 
 @router.post("/generate-article")
