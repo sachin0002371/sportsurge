@@ -88,6 +88,7 @@ export default async function SportPage({ params }: SportPageProps) {
           where: { sportId: sport.id },
           include: { team: true, sport: true },
           orderBy: { position: 'asc' },
+          take: 20,
         }),
       ]);
 

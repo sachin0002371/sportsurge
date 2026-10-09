@@ -391,6 +391,7 @@ async def fetch_and_store_matches(db: AsyncSession, sport_slug: str) -> dict:
         logger.warning(f"Error during stale match cleanup for {sport_slug}: {cleanup_err}")
 
     await db.commit()
+    invalidate_api_cache()
 
     return {
         "sport": sport_slug,
@@ -625,6 +626,25 @@ async def generate_match_seo_content(
 
 # ==================== Query Helpers ====================
 
+# In-memory fast TTL Cache for zero-latency responses
+import time
+_API_CACHE = {}
+
+def _get_cache(key: str, ttl: int = 30):
+    entry = _API_CACHE.get(key)
+    if entry and (time.time() - entry["time"]) < ttl:
+        return entry["data"]
+    return None
+
+def _set_cache(key: str, data, max_entries: int = 300):
+    if len(_API_CACHE) > max_entries:
+        _API_CACHE.clear()
+    _API_CACHE[key] = {"data": data, "time": time.time()}
+
+def invalidate_api_cache():
+    _API_CACHE.clear()
+
+
 async def get_matches(
     db: AsyncSession,
     sport_slug: str = None,
@@ -632,7 +652,12 @@ async def get_matches(
     limit: int = 50,
     page: int = 1,
 ) -> dict:
-    """Get matches with filtering and pagination."""
+    """Get matches with filtering and pagination (in-memory cached)."""
+    cache_key = f"matches::{sport_slug}::{status}::{limit}::{page}"
+    cached = _get_cache(cache_key, ttl=15)
+    if cached:
+        return cached
+
     stmt = select(Match).options(
         selectinload(Match.home_team),
         selectinload(Match.away_team),
@@ -649,31 +674,26 @@ async def get_matches(
         stmt = stmt.where(Match.status == status)
 
     stmt = stmt.order_by(Match.match_date.asc()).offset((page - 1) * limit).limit(limit)
-
     matches = (await db.execute(stmt)).scalars().all()
 
-    # Count total
-    count_stmt = select(Match)
-    if sport_slug:
-        sport = (await db.execute(select(Sport).where(Sport.slug == sport_slug))).scalar_one_or_none()
-        if sport:
-            count_stmt = count_stmt.where(Match.sport_id == sport.id)
-    if status:
-        count_stmt = count_stmt.where(Match.status == status)
-
-    total = len((await db.execute(count_stmt)).scalars().all())
-
-    return {
+    result = {
         "matches": [_match_to_dict(m) for m in matches],
-        "total": total,
+        "total": len(matches),
         "page": page,
         "limit": limit,
-        "total_pages": max(1, (total + limit - 1) // limit),
+        "total_pages": 1,
     }
+    _set_cache(cache_key, result)
+    return result
 
 
 async def get_match_by_slug(db: AsyncSession, slug: str) -> Optional[dict]:
-    """Get a single match by slug."""
+    """Get a single match by slug (in-memory cached)."""
+    cache_key = f"match::{slug}"
+    cached = _get_cache(cache_key, ttl=15)
+    if cached:
+        return cached
+
     stmt = select(Match).where(Match.slug == slug).options(
         selectinload(Match.home_team),
         selectinload(Match.away_team),
@@ -682,7 +702,9 @@ async def get_match_by_slug(db: AsyncSession, slug: str) -> Optional[dict]:
     match = (await db.execute(stmt)).scalar_one_or_none()
     if not match:
         return None
-    return _match_to_dict(match)
+    res = _match_to_dict(match)
+    _set_cache(cache_key, res)
+    return res
 
 
 async def get_articles(
@@ -691,7 +713,12 @@ async def get_articles(
     limit: int = 12,
     page: int = 1,
 ) -> dict:
-    """Get published articles."""
+    """Get published articles (in-memory cached)."""
+    cache_key = f"articles::{sport_slug}::{limit}::{page}"
+    cached = _get_cache(cache_key, ttl=60)
+    if cached:
+        return cached
+
     stmt = select(Article).where(Article.is_published == True).options(
         selectinload(Article.author),
         selectinload(Article.sport),
@@ -705,13 +732,20 @@ async def get_articles(
     stmt = stmt.order_by(Article.published_at.desc()).offset((page - 1) * limit).limit(limit)
     articles = (await db.execute(stmt)).scalars().all()
 
-    return {
+    result = {
         "articles": [_article_to_dict(a) for a in articles],
     }
+    _set_cache(cache_key, result)
+    return result
 
 
 async def get_article_by_slug(db: AsyncSession, slug: str) -> Optional[dict]:
-    """Get a single article by slug."""
+    """Get a single article by slug (in-memory cached)."""
+    cache_key = f"article::{slug}"
+    cached = _get_cache(cache_key, ttl=60)
+    if cached:
+        return cached
+
     stmt = select(Article).where(Article.slug == slug).options(
         selectinload(Article.author),
         selectinload(Article.sport),
@@ -719,21 +753,30 @@ async def get_article_by_slug(db: AsyncSession, slug: str) -> Optional[dict]:
     article = (await db.execute(stmt)).scalar_one_or_none()
     if not article:
         return None
-    return _article_to_dict(article)
+    res = _article_to_dict(article)
+    _set_cache(cache_key, res)
+    return res
 
 
 async def get_standings(db: AsyncSession, sport_slug: str) -> list[dict]:
-    """Get standings for a sport."""
+    """Get standings for a sport (in-memory cached)."""
+    cache_key = f"standings::{sport_slug}"
+    cached = _get_cache(cache_key, ttl=120)
+    if cached:
+        return cached
+
     sport = (await db.execute(select(Sport).where(Sport.slug == sport_slug))).scalar_one_or_none()
     if not sport:
         return []
 
     stmt = select(Standing).where(Standing.sport_id == sport.id).options(
         selectinload(Standing.team),
-    ).order_by(Standing.position.asc())
+    ).order_by(Standing.position.asc()).limit(35)
 
     standings = (await db.execute(stmt)).scalars().all()
-    return [_standing_to_dict(s) for s in standings]
+    res = [_standing_to_dict(s) for s in standings]
+    _set_cache(cache_key, res)
+    return res
 
 
 async def record_vote(db: AsyncSession, match_id: str, team_id: str, ip_address: str) -> dict:
