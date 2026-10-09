@@ -104,10 +104,18 @@ export default async function HomePage() {
     console.warn('HomePage db error during prerender:', error);
   }
 
+  const seenTitles = new Set<string>();
+  const uniqueArticles = articles.filter(a => {
+    const key = (a.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!key || seenTitles.has(key)) return false;
+    seenTitles.add(key);
+    return true;
+  });
+
   const liveMatches = matches.filter(m => m.status === 'live');
   const upcomingMatches = matches.filter(m => m.status === 'upcoming');
-  const featuredArticle = articles[0];
-  const trendingArticles = articles.slice(1, 7);
+  const featuredArticle = uniqueArticles[0];
+  const trendingArticles = uniqueArticles.slice(1, 7);
 
   const allMatchesWithVotes = [...liveMatches, ...upcomingMatches, ...finishedMatches];
   const mostDiscussed = allMatchesWithVotes.reduce(

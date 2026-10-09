@@ -75,12 +75,21 @@ export default async function NewsPage({ params }: NewsPageProps) {
     sport = { id: sportSlug, slug: sportSlug, name };
   }
 
-  const categoryCounts: Record<string, number> = {};
-  categories.forEach(cat => {
-    categoryCounts[cat] = articles.filter(a => a.category === cat).length;
+  // Deduplicate articles by title (keep freshest)
+  const seenTitles = new Set<string>();
+  const uniqueArticles = articles.filter(a => {
+    const key = (a.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!key || seenTitles.has(key)) return false;
+    seenTitles.add(key);
+    return true;
   });
 
-  const serializedArticles = articles.map(a => ({
+  const categoryCounts: Record<string, number> = {};
+  categories.forEach(cat => {
+    categoryCounts[cat] = uniqueArticles.filter(a => a.category === cat).length;
+  });
+
+  const serializedArticles = uniqueArticles.map(a => ({
     id: a.id,
     title: a.title,
     slug: a.slug,
@@ -89,8 +98,8 @@ export default async function NewsPage({ params }: NewsPageProps) {
     category: a.category,
     publishedAt: a.publishedAt?.toISOString() ?? new Date().toISOString(),
     author: {
-      name: a.author.name,
-      avatar: a.author.avatar,
+      name: a.author?.name || 'Sportsurge Analyst',
+      avatar: a.author?.avatar || null,
     },
     sport: a.sport ? {
       slug: a.sport.slug,

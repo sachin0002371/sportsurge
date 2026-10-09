@@ -31,7 +31,16 @@ export default async function NewsPage() {
     console.warn('NewsPage db error during prerender:', error);
   }
 
-  const serializedArticles = articles.map(a => ({
+  // Deduplicate articles by title (keep freshest)
+  const seenTitles = new Set<string>();
+  const uniqueArticles = articles.filter(a => {
+    const key = (a.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!key || seenTitles.has(key)) return false;
+    seenTitles.add(key);
+    return true;
+  });
+
+  const serializedArticles = uniqueArticles.map(a => ({
     id: a.id,
     title: a.title,
     slug: a.slug,

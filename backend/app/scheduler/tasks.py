@@ -85,12 +85,15 @@ async def generate_fixed_hour_article_task():
                 article_slug = slugify(topic_text)[:100]
 
                 existing = (await db.execute(
-                    select(Article).where(Article.slug == article_slug)
-                )).scalar_one_or_none()
+                    select(Article).where(
+                        (Article.slug.like(f"{article_slug}%")) |
+                        (Article.title == topic_text[:200])
+                    )
+                )).scalars().first()
 
                 if existing:
-                    # Append date suffix to make slug unique instead of skipping
-                    article_slug = f"{article_slug}-{datetime.utcnow().strftime('%m%d%H%M')}"
+                    logger.info(f"Topic '{topic_text}' already covered, checking next topic...")
+                    continue
 
                 sport = sports.get(sport_slug)
                 if not sport:
@@ -187,12 +190,15 @@ async def generate_random_article_task():
                 article_slug = slugify(topic_text)[:100]
 
                 existing = (await db.execute(
-                    select(Article).where(Article.slug == article_slug)
-                )).scalar_one_or_none()
+                    select(Article).where(
+                        (Article.slug.like(f"{article_slug}%")) |
+                        (Article.title == topic_text[:200])
+                    )
+                )).scalars().first()
 
                 if existing:
-                    # Append date suffix to make slug unique instead of skipping
-                    article_slug = f"{article_slug}-{datetime.utcnow().strftime('%m%d%H%M')}"
+                    logger.info(f"Topic '{topic_text}' already covered, checking next topic...")
+                    continue
 
                 sport = sports.get(sport_slug)
                 if not sport:
@@ -305,12 +311,15 @@ async def check_trending_and_boost_task():
                 article_slug = slugify(topic_text)[:100]
 
                 existing = (await db.execute(
-                    select(Article).where(Article.slug == article_slug)
-                )).scalar_one_or_none()
+                    select(Article).where(
+                        (Article.slug.like(f"{article_slug}%")) |
+                        (Article.title == topic_text[:200])
+                    )
+                )).scalars().first()
 
                 if existing:
-                    # Append date suffix to make slug unique instead of skipping
-                    article_slug = f"{article_slug}-{datetime.utcnow().strftime('%m%d%H%M')}"
+                    logger.info(f"Topic '{topic_text}' already covered, checking next topic...")
+                    continue
 
                 sport = sports.get(sport_slug)
                 if not sport:
