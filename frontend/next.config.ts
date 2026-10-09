@@ -20,6 +20,23 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'a.espncdn.com' },
     ],
   },
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'CDN-Cache-Control',
+            value: 'public, max-age=600, stale-while-revalidate=86400',
+          },
+          {
+            key: 'Cloudflare-CDN-Cache-Control',
+            value: 'public, max-age=600, stale-while-revalidate=86400',
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

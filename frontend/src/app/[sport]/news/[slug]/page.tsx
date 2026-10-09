@@ -12,11 +12,25 @@ import Link from 'next/link';
 import { Clock, BookOpen } from 'lucide-react';
 import AdPlacement from '@/components/AdPlacement';
 
+import { cache } from 'react';
+
 interface ArticlePageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
 export const revalidate = 3600; // Cache for 1 hour
+
+const getArticle = cache(async (slug: string) => {
+  try {
+    return await db.article.findUnique({
+      where: { slug },
+      include: { author: true, sport: true },
+    });
+  } catch (error) {
+    console.warn(`[getArticle] db error for ${slug}:`, error);
+    return null;
+  }
+});
 
 export async function generateStaticParams() {
   try {
@@ -43,10 +57,7 @@ function calculateReadingTime(content: string): number {
 export async function generateMetadata({ params }: ArticlePageProps) {
   const { slug } = await params;
   try {
-    const article = await db.article.findUnique({
-      where: { slug },
-      include: { author: true, sport: true },
-    });
+    const article = await getArticle(slug);
 
     if (!article) return { title: 'Article Not Found - Sportsurge Official' };
 
@@ -81,19 +92,14 @@ export async function generateMetadata({ params }: ArticlePageProps) {
 
 export default async function ArticlePage({ params }: ArticlePageProps) {
   const { sport: sportSlug, slug } = await params;
-  let article: any = null;
+  const article = await getArticle(slug);
   let relatedArticles: any[] = [];
   let readNextArticles: any[] = [];
   let trendingArticles: any[] = [];
 
-  try {
-    article = await db.article.findUnique({
-      where: { slug },
-      include: { author: true, sport: true },
-    });
-
-    if (article) {
-      [relatedArticles, readNextArticles, trendingArticles] = await Promise.all([
+  if (article) {
+    try {
+      const [sameSportArticles, otherSportArticles] = await Promise.all([
         db.article.findMany({
           where: {
             sportId: article.sportId,
@@ -102,7 +108,7 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
           },
           include: { author: true, sport: true },
           orderBy: { publishedAt: 'desc' },
-          take: 3,
+          take: 7,
         }),
         db.article.findMany({
           where: {
@@ -114,27 +120,14 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
           orderBy: { publishedAt: 'desc' },
           take: 3,
         }),
-        db.article.findMany({
-          where: {
-            sportId: article.sportId,
-            isPublished: true,
-            id: { not: article.id },
-          },
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-            publishedAt: true,
-            featuredImage: true,
-            sport: { select: { slug: true } },
-          },
-          orderBy: { publishedAt: 'desc' },
-          take: 4,
-        }),
       ]);
+
+      relatedArticles = sameSportArticles.slice(0, 3);
+      trendingArticles = sameSportArticles.slice(0, 4);
+      readNextArticles = otherSportArticles;
+    } catch (error) {
+      console.warn(`[ArticlePage] related articles error for ${slug}:`, error);
     }
-  } catch (error) {
-    console.warn(`[ArticlePage] db error for ${slug}:`, error);
   }
 
   if (!article) notFound();

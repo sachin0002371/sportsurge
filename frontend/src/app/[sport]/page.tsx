@@ -71,23 +71,12 @@ export default async function SportPage({ params }: SportPageProps) {
     });
 
     if (sport) {
-      [liveMatches, upcomingMatches, finishedMatches, articles, standings] = await Promise.all([
+      const [allSportMatches, sportArticles, sportStandings] = await Promise.all([
         db.match.findMany({
-          where: { sportId: sport.id, status: 'live' },
+          where: { sportId: sport.id },
           include: { homeTeam: true, awayTeam: true, sport: true },
           orderBy: { matchDate: 'desc' },
-        }),
-        db.match.findMany({
-          where: { sportId: sport.id, status: 'upcoming' },
-          include: { homeTeam: true, awayTeam: true, sport: true },
-          orderBy: { matchDate: 'asc' },
-          take: 10,
-        }),
-        db.match.findMany({
-          where: { sportId: sport.id, status: 'finished' },
-          include: { homeTeam: true, awayTeam: true, sport: true },
-          orderBy: { matchDate: 'desc' },
-          take: 10,
+          take: 30,
         }),
         db.article.findMany({
           where: { sportId: sport.id, isPublished: true },
@@ -101,6 +90,15 @@ export default async function SportPage({ params }: SportPageProps) {
           orderBy: { position: 'asc' },
         }),
       ]);
+
+      liveMatches = allSportMatches.filter((m: any) => m.status === 'live');
+      upcomingMatches = allSportMatches
+        .filter((m: any) => m.status === 'upcoming')
+        .sort((a: any, b: any) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime())
+        .slice(0, 10);
+      finishedMatches = allSportMatches.filter((m: any) => m.status === 'finished').slice(0, 10);
+      articles = sportArticles;
+      standings = sportStandings;
     }
   } catch (error) {
     console.warn(`[SportPage] db query error for ${sportSlug}:`, error);

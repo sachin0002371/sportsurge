@@ -12,11 +12,25 @@ import Link from 'next/link';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
+import { cache } from 'react';
+
 interface MatchPageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
 export const revalidate = 600; // Cache for 10 minutes
+
+const getMatch = cache(async (slug: string) => {
+  try {
+    return await db.match.findFirst({
+      where: { slug },
+      include: { homeTeam: true, awayTeam: true, sport: true },
+    });
+  } catch (error) {
+    console.warn(`[getMatch] db error for ${slug}:`, error);
+    return null;
+  }
+});
 
 export async function generateStaticParams() {
   try {
@@ -35,12 +49,9 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: MatchPageProps) {
-  const { sport: sportSlug, slug } = await params;
+  const { slug } = await params;
   try {
-    const match = await db.match.findFirst({
-      where: { slug },
-      include: { homeTeam: true, awayTeam: true, sport: true },
-    });
+    const match = await getMatch(slug);
 
     if (!match) return { title: 'Match Not Found - Sportsurge Official' };
 
@@ -111,17 +122,12 @@ function generateMatchSEO(
 
 export default async function MatchPage({ params }: MatchPageProps) {
   const { sport: sportSlug, slug } = await params;
-  let match: any = null;
+  const match = await getMatch(slug);
   let relatedArticles: any[] = [];
   let relatedMatches: any[] = [];
 
-  try {
-    match = await db.match.findFirst({
-      where: { slug },
-      include: { homeTeam: true, awayTeam: true, sport: true },
-    });
-
-    if (match) {
+  if (match) {
+    try {
       [relatedArticles, relatedMatches] = await Promise.all([
         db.article.findMany({
           where: {
@@ -144,9 +150,9 @@ export default async function MatchPage({ params }: MatchPageProps) {
           take: 4,
         }),
       ]);
+    } catch (error) {
+      console.warn(`[MatchPage] related data error for ${slug}:`, error);
     }
-  } catch (error) {
-    console.warn(`[MatchPage] db error for ${slug}:`, error);
   }
 
   if (!match) notFound();
