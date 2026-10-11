@@ -8,7 +8,7 @@ interface NewsPageProps {
   params: Promise<{ sport: string }>;
 }
 
-export const revalidate = 1800; // Cache for 30 minutes
+export const revalidate = 3600; // Cache for 1 hour
 
 export async function generateStaticParams() {
   try {

@@ -61,7 +61,7 @@ export default function MatchCard({ match, compact = false }: MatchCardProps) {
   const aScoreObj = parseScoreString(broadcastData.away_score_str, match.awayScore);
 
   return (
-    <Link href={`/${match.sport.slug}/match/${match.slug}`}>
+    <Link href={`/${match.sport.slug}/match/${match.slug}`} prefetch={false}>
       <div
         className="bg-white rounded-2xl transition-all duration-200 p-4 group cursor-pointer hover:shadow-md"
         style={{ boxShadow: 'rgba(34,34,38,0.16) 0px 1px 4px' }}

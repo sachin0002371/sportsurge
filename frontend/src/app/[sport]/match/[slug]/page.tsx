@@ -18,7 +18,7 @@ interface MatchPageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
-export const revalidate = 300; // 5 min Edge Cache
+export const revalidate = 1800; // 30 min Edge ISR Cache
 
 const getMatch = cache(async (slug: string) => {
   try {

@@ -9,7 +9,7 @@ interface SchedulePageProps {
   params: Promise<{ sport: string }>;
 }
 
-export const revalidate = 300; // 5 min ISR on Cloudflare CDN
+export const revalidate = 3600; // 1 hour ISR on Edge CDN
 
 export async function generateStaticParams() {
   try {

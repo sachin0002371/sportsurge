@@ -9,7 +9,7 @@ interface StandingsPageProps {
   params: Promise<{ sport: string }>;
 }
 
-export const revalidate = 1800; // Cache for 30 minutes
+export const revalidate = 7200; // Cache for 2 hours
 
 export async function generateStaticParams() {
   try {

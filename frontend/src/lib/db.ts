@@ -76,8 +76,6 @@ async function fetchFromBackend(endpoint: string, options: RequestInit = {}, ttl
           'User-Agent': 'SportSurge-Edge/3.0',
           ...(options.headers || {}),
         },
-        // Cloudflare CDN cache hints
-        next: { revalidate: Math.floor(ttlMs / 1000) },
       });
 
       clearTimeout(timeout);
@@ -253,8 +251,7 @@ function mapStanding(row: any) {
 
 const sportDb = {
   async findMany(args: any = {}) {
-    const data = await fetchFromBackend('/api/v1/sports', {}, 300000); // 5 min cache
-    let sports = Array.isArray(data?.sports) ? data.sports.map(mapSport).filter(Boolean) : DEFAULT_SPORTS.map(mapSport);
+    let sports = DEFAULT_SPORTS.map(mapSport).filter(Boolean);
     if (args.where?.slug) {
       sports = sports.filter((s: any) => s.slug === args.where.slug);
     }
@@ -273,9 +270,6 @@ const sportDb = {
       const mem = getSportFromMemory(args.where.id);
       if (mem) return mapSport(mem);
     }
-    const sports = await this.findMany();
-    if (args.where?.id) return sports.find((s: any) => s.id === args.where.id) || null;
-    if (args.where?.slug) return sports.find((s: any) => s.slug === args.where.slug) || null;
     return null;
   },
 
@@ -285,42 +279,56 @@ const sportDb = {
 };
 
 const articleDb = {
+  async getAllCached() {
+    const data = await fetchFromBackend('/api/v1/articles?limit=100&page=1', {}, 900000); // 15 min memory cache
+    return Array.isArray(data?.articles) ? data.articles.map(mapArticle).filter(Boolean) : [];
+  },
+
   async findMany(args: any = {}) {
-    const limit = args.take || 12;
-    const page = args.skip ? Math.floor(args.skip / limit) + 1 : 1;
-    let url = `/api/v1/articles?limit=${limit}&page=${page}`;
+    let articles = await this.getAllCached();
+
     if (args.where?.sportId) {
       if (typeof args.where.sportId === 'string') {
         const memSport = getSportFromMemory(args.where.sportId);
-        const sportSlug = memSport?.slug;
-        if (sportSlug) {
-          url += `&sport=${sportSlug}`;
-        }
+        const sportSlug = memSport?.slug || args.where.sportId.toLowerCase();
+        articles = articles.filter((a: any) =>
+          a.sport?.slug === sportSlug ||
+          a.sportId === args.where.sportId ||
+          (typeof a.tags === 'string' && a.tags.toLowerCase().includes(sportSlug))
+        );
+      } else if (args.where.sportId?.not) {
+        const notId = args.where.sportId.not;
+        const memSport = getSportFromMemory(notId);
+        const notSlug = memSport?.slug || String(notId).toLowerCase();
+        articles = articles.filter((a: any) => a.sportId !== notId && a.sport?.slug !== notSlug && a.sport?.id !== notId);
       }
     }
+
     if (args.where?.category) {
-      url += `&category=${args.where.category}`;
+      articles = articles.filter((a: any) => a.category === args.where.category);
     }
-    const data = await fetchFromBackend(url, {}, 60000); // 1 min cache
-    let articles = Array.isArray(data?.articles) ? data.articles.map(mapArticle).filter(Boolean) : [];
+
     if (args.where?.id?.not) {
       articles = articles.filter((a: any) => a.id !== args.where.id.not);
     }
-    if (args.where?.sportId?.not) {
-      const notId = args.where.sportId.not;
-      articles = articles.filter((a: any) => a.sportId !== notId && a.sport?.slug !== notId && a.sport?.id !== notId);
-    }
-    return articles;
+
+    const skip = args.skip || 0;
+    const take = args.take || 12;
+    return articles.slice(skip, skip + take);
   },
 
   async findUnique(args: any = {}) {
+    const articles = await this.getAllCached();
+    if (args.where?.id) {
+      const found = articles.find((a: any) => a.id === args.where.id);
+      if (found) return found;
+    }
     if (args.where?.slug) {
-      const data = await fetchFromBackend(`/api/v1/articles/${args.where.slug}`, {}, 60000);
+      const found = articles.find((a: any) => a.slug === args.where.slug);
+      if (found) return found;
+      const data = await fetchFromBackend(`/api/v1/articles/${args.where.slug}`, {}, 900000);
       if (data) return mapArticle(data);
     }
-    const articles = await this.findMany({ take: 50 });
-    if (args.where?.id) return articles.find((a: any) => a.id === args.where.id) || null;
-    if (args.where?.slug) return articles.find((a: any) => a.slug === args.where.slug) || null;
     return null;
   },
 
@@ -329,12 +337,12 @@ const articleDb = {
   },
 
   async count(args: any = {}) {
-    const articles = await this.findMany(args);
-    return articles.length;
+    const all = await this.findMany({ ...args, skip: 0, take: 500 });
+    return all.length;
   },
 
   async getCategoryCounts() {
-    const articles = await this.findMany({ take: 100 });
+    const articles = await this.getAllCached();
     const counts: Record<string, number> = { all: articles.length };
     for (const a of articles) {
       if (a.category) {
@@ -346,59 +354,60 @@ const articleDb = {
 };
 
 const matchDb = {
-  async findMany(args: any = {}) {
-    const limit = args.take || 50;
-    let status = '';
-    if (args.where?.status) {
-      if (typeof args.where.status === 'string') status = args.where.status;
-      else if (Array.isArray(args.where.status?.in) && args.where.status.in.length === 1) {
-        status = args.where.status.in[0];
-      }
-    }
+  async getAllCached() {
+    const data = await fetchFromBackend('/api/v1/matches?limit=200', {}, 300000); // 5 min memory cache
+    return Array.isArray(data?.matches) ? data.matches.map(mapMatch).filter(Boolean) : [];
+  },
 
-    let url = `/api/v1/matches?limit=${limit}`;
-    if (status) {
-      url += `&status=${status}`;
+  async findMany(args: any = {}) {
+    let matches = await this.getAllCached();
+
+    if (args.where?.status) {
+      if (typeof args.where.status === 'string') {
+        matches = matches.filter((m: any) => m.status === args.where.status);
+      } else if (Array.isArray(args.where.status?.in)) {
+        matches = matches.filter((m: any) => args.where.status.in.includes(m.status));
+      }
     }
 
     if (args.where?.sportId) {
       if (typeof args.where.sportId === 'string') {
         const memSport = getSportFromMemory(args.where.sportId);
-        if (memSport?.slug) {
-          url += `&sport=${memSport.slug}`;
-        }
+        const sportSlug = memSport?.slug || args.where.sportId.toLowerCase();
+        matches = matches.filter((m: any) => m.sport?.slug === sportSlug || m.sportId === args.where.sportId);
+      } else if (args.where.sportId?.not) {
+        const notId = args.where.sportId.not;
+        const memSport = getSportFromMemory(notId);
+        const notSlug = memSport?.slug || String(notId).toLowerCase();
+        matches = matches.filter((m: any) => m.sportId !== notId && m.sport?.slug !== notSlug && m.sport?.id !== notId);
       }
     }
 
-    const data = await fetchFromBackend(url, {}, 15000); // 15 sec cache for fresh scores
-    let matches = Array.isArray(data?.matches) ? data.matches.map(mapMatch).filter(Boolean) : [];
-
-    if (Array.isArray(args.where?.status?.in)) {
-      matches = matches.filter((m: any) => args.where.status.in.includes(m.status));
-    }
     if (args.where?.id?.not) {
       matches = matches.filter((m: any) => m.id !== args.where.id.not);
     }
-    if (args.where?.sportId?.not) {
-      const notId = args.where.sportId.not;
-      matches = matches.filter((m: any) => m.sportId !== notId && m.sport?.slug !== notId && m.sport?.id !== notId);
-    }
+
     if (args.where?.matchDate?.gte) {
       const gteTime = new Date(args.where.matchDate.gte).getTime();
       matches = matches.filter((m: any) => new Date(m.matchDate).getTime() >= gteTime);
     }
 
-    return matches;
+    const limit = args.take || 50;
+    return matches.slice(0, limit);
   },
 
   async findUnique(args: any = {}) {
+    const matches = await this.getAllCached();
+    if (args.where?.id) {
+      const found = matches.find((m: any) => m.id === args.where.id);
+      if (found) return found;
+    }
     if (args.where?.slug) {
-      const data = await fetchFromBackend(`/api/v1/matches/${args.where.slug}`, {}, 15000);
+      const found = matches.find((m: any) => m.slug === args.where.slug);
+      if (found) return found;
+      const data = await fetchFromBackend(`/api/v1/matches/${args.where.slug}`, {}, 300000);
       if (data) return mapMatch(data);
     }
-    const matches = await this.findMany({ take: 50 });
-    if (args.where?.id) return matches.find((m: any) => m.id === args.where.id) || null;
-    if (args.where?.slug) return matches.find((m: any) => m.slug === args.where.slug) || null;
     return null;
   },
 
@@ -407,7 +416,7 @@ const matchDb = {
   },
 
   async count(args: any = {}) {
-    const matches = await this.findMany(args);
+    const matches = await this.findMany({ ...args, take: 500 });
     return matches.length;
   },
 

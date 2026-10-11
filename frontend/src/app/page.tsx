@@ -12,7 +12,7 @@ import { formatDate, formatTime } from '@/lib/utils';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
-export const revalidate = 300; // 5 min Edge Cache
+export const revalidate = 900; // 15 min Edge ISR Cache
 
 export const metadata = {
   title: 'Sportsurge Official – Fast Live Scores, Fixtures & Sports Coverage',
@@ -205,7 +205,7 @@ export default async function HomePage() {
                       <div key={match.id} className="p-4.5 space-y-3.5 hover:bg-[rgba(229,233,239,0.3)] transition-colors">
                         {/* Top row: Category & Time */}
                         <div className="flex items-center justify-between text-xs">
-                          <Link href={`/${match.sport.slug}`} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 shadow-2xs">
+                          <Link href={`/${match.sport.slug}`} prefetch={false} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 shadow-2xs">
                             <SportIcon slug={match.sport.slug} size="sm" />
                             {match.sport.name}
                           </Link>
@@ -216,7 +216,7 @@ export default async function HomePage() {
                         </div>
 
                         {/* Middle row: Teams */}
-                        <Link href={`/${match.sport.slug}/match/${match.slug}`} className="block space-y-2.5 py-1 group">
+                        <Link href={`/${match.sport.slug}/match/${match.slug}`} prefetch={false} className="block space-y-2.5 py-1 group">
                           {/* Home Team */}
                           <div className="flex items-center justify-between gap-3 bg-[rgba(229,233,239,0.2)] p-2.5 rounded-xl border border-[rgba(229,233,239,0.5)] group-hover:border-indigo-200 transition-colors">
                             <div className="flex items-center gap-2.5 min-w-0">
@@ -256,6 +256,7 @@ export default async function HomePage() {
                         <div className="pt-1">
                           <Link
                             href={`/${match.sport.slug}/match/${match.slug}`}
+                            prefetch={false}
                             className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 to-indigo-700 text-white hover:from-indigo-50 hover:to-indigo-600 shadow-sm transition-all"
                           >
                             Watch Match Preview →
@@ -281,7 +282,7 @@ export default async function HomePage() {
                           <tr key={match.id} className="hover:bg-[rgba(229,233,239,0.3)] transition-colors group">
                             {/* TEAMS (Left-Aligned Inline: Logo -> Name -> vs -> Logo -> Name) */}
                             <td className="py-3.5 px-4 text-left">
-                              <Link href={`/${match.sport.slug}/match/${match.slug}`} className="flex items-center gap-3 group min-w-0">
+                              <Link href={`/${match.sport.slug}/match/${match.slug}`} prefetch={false} className="flex items-center gap-3 group min-w-0">
                                 {/* Team A (Home) */}
                                 <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
                                   {match.homeTeam.logo ? (
@@ -319,7 +320,7 @@ export default async function HomePage() {
 
                             {/* CATEGORY */}
                             <td className="py-3 px-4 text-center whitespace-nowrap">
-                              <Link href={`/${match.sport.slug}`} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors border border-indigo-100">
+                              <Link href={`/${match.sport.slug}`} prefetch={false} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors border border-indigo-100">
                                 <SportIcon slug={match.sport.slug} size="sm" />
                                 {match.sport.name}
                               </Link>
@@ -339,6 +340,7 @@ export default async function HomePage() {
                             <td className="py-3 px-4 text-right whitespace-nowrap">
                               <Link
                                 href={`/${match.sport.slug}/match/${match.slug}`}
+                                prefetch={false}
                                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-indigo-600 to-indigo-700 text-white hover:from-indigo-50 hover:to-indigo-600 shadow-sm hover:shadow transition-all hover:scale-105"
                               >
                                 Watch →
@@ -358,7 +360,7 @@ export default async function HomePage() {
               <section>
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold" style={{ color: '#222226', letterSpacing: '-0.02em' }}>Latest Results</h2>
-                  <Link href="/nba/schedule" className="text-sm font-semibold hover:underline" style={{ color: '#374DF5' }}>
+                  <Link href="/nba/schedule" prefetch={false} className="text-sm font-semibold hover:underline" style={{ color: '#374DF5' }}>
                     All Results →
                   </Link>
                 </div>
@@ -372,6 +374,7 @@ export default async function HomePage() {
                       <Link 
                         key={match.id} 
                         href={`/${match.sport.slug}/match/${match.slug}`}
+                        prefetch={false}
                         className="bg-white rounded-2xl p-4.5 border border-[rgba(229,233,239,0.8)] hover:border-indigo-400 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between group"
                       >
                         {/* Card Top: Sport Pill & FT Badge */}

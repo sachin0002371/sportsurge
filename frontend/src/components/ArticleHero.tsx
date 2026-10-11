@@ -24,7 +24,7 @@ interface ArticleHeroProps {
 
 export default function ArticleHero({ article }: ArticleHeroProps) {
   return (
-    <Link href={`/${article.sport?.slug || 'nba'}/news/${article.slug}`}>
+    <Link href={`/${article.sport?.slug || 'nba'}/news/${article.slug}`} prefetch={false}>
       <article className="relative rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group cursor-pointer">
         {/* Background image */}
         {article.featuredImage && (

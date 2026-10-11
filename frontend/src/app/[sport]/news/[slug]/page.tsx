@@ -18,7 +18,7 @@ interface ArticlePageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
 
-export const revalidate = 3600; // Cache for 1 hour
+export const revalidate = 86400; // Cache article detail for 24 hours
 
 const getArticle = cache(async (slug: string) => {
   try {

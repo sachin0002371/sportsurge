@@ -24,7 +24,7 @@ interface ArticleCardProps {
 
 export default function ArticleCard({ article, featured = false }: ArticleCardProps) {
   return (
-    <Link href={`/${article.sport?.slug || 'nba'}/news/${article.slug}`}>
+    <Link href={`/${article.sport?.slug || 'nba'}/news/${article.slug}`} prefetch={false}>
       <article
         className="bg-white rounded-2xl overflow-hidden group cursor-pointer transition-all duration-200 hover:shadow-md"
         style={{ boxShadow: 'rgba(34,34,38,0.16) 0px 1px 4px' }}

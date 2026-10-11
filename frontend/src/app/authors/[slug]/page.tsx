@@ -8,7 +8,7 @@ interface AuthorPageProps {
   params: Promise<{ slug: string }>;
 }
 
-export const revalidate = 3600; // Cache for 1 hour
+export const revalidate = 86400; // Cache for 24 hours
 
 export async function generateStaticParams() {
   try {
