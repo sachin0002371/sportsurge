@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Newspaper } from 'lucide-react';
 import AdPlacement from '@/components/AdPlacement';
 
-export const revalidate = 3600; // Static Cache for 1 hour at Edge
+export const revalidate = 7200; // Static Cache for 2 hours at Edge
 
 export const metadata = {
   title: 'Latest Sports News & Expert Analysis - Sportsurge Official',

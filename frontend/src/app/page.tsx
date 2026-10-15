@@ -12,7 +12,7 @@ import { formatDate, formatTime } from '@/lib/utils';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
-export const revalidate = 900; // 15 min Edge ISR Cache
+export const revalidate = 1800; // 30 min Edge ISR Cache
 
 export const metadata = {
   title: 'Sportsurge Official – Fast Live Scores, Fixtures & Sports Coverage',

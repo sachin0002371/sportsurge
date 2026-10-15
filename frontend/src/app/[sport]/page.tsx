@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SportIcon from '@/components/SportIcon';
 import AdPlacement from '@/components/AdPlacement';
 
-export const revalidate = 900; // 15 min Edge ISR Cache
+export const revalidate = 3600; // 1 hour Edge ISR Cache
 
 interface SportPageProps {
   params: Promise<{ sport: string }>;
