@@ -97,7 +97,10 @@ export default async function SportPage({ params }: SportPageProps) {
         .filter((m: any) => m.status === 'upcoming' && new Date(m.matchDate).getTime() >= Date.now() - 6 * 3600 * 1000)
         .sort((a: any, b: any) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime())
         .slice(0, 10);
-      finishedMatches = allSportMatches.filter((m: any) => m.status === 'finished').slice(0, 10);
+      finishedMatches = allSportMatches
+        .filter((m: any) => m.status === 'finished')
+        .sort((a: any, b: any) => new Date(b.matchDate).getTime() - new Date(a.matchDate).getTime())
+        .slice(0, 10);
       articles = sportArticles;
       standings = sportStandings;
     }

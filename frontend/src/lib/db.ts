@@ -355,8 +355,25 @@ const articleDb = {
 
 const matchDb = {
   async getAllCached() {
-    const data = await fetchFromBackend('/api/v1/matches?limit=200', {}, 300000); // 5 min memory cache
-    return Array.isArray(data?.matches) ? data.matches.map(mapMatch).filter(Boolean) : [];
+    const [liveData, upcomingData, finishedData] = await Promise.all([
+      fetchFromBackend('/api/v1/matches?status=live&limit=50', {}, 60000), // 1 min memory cache
+      fetchFromBackend('/api/v1/matches?status=upcoming&limit=100', {}, 180000), // 3 min memory cache
+      fetchFromBackend('/api/v1/matches?status=finished&limit=100&order=desc', {}, 180000), // 3 min memory cache
+    ]);
+
+    const allMatches = [
+      ...(Array.isArray(liveData?.matches) ? liveData.matches : []),
+      ...(Array.isArray(upcomingData?.matches) ? upcomingData.matches : []),
+      ...(Array.isArray(finishedData?.matches) ? finishedData.matches : []),
+    ];
+
+    const map = new Map();
+    for (const m of allMatches) {
+      if (m && m.id && !map.has(m.id)) {
+        map.set(m.id, mapMatch(m));
+      }
+    }
+    return Array.from(map.values()).filter(Boolean);
   },
 
   async findMany(args: any = {}) {
@@ -390,6 +407,22 @@ const matchDb = {
     if (args.where?.matchDate?.gte) {
       const gteTime = new Date(args.where.matchDate.gte).getTime();
       matches = matches.filter((m: any) => new Date(m.matchDate).getTime() >= gteTime);
+    }
+
+    if (args.orderBy) {
+      const orderConfig = Array.isArray(args.orderBy) ? args.orderBy[0] : args.orderBy;
+      if (orderConfig && typeof orderConfig === 'object') {
+        const field = Object.keys(orderConfig)[0];
+        const dir = String(orderConfig[field] || 'asc').toLowerCase();
+
+        if (field === 'matchDate') {
+          matches = [...matches].sort((a: any, b: any) => {
+            const timeA = new Date(a.matchDate).getTime() || 0;
+            const timeB = new Date(b.matchDate).getTime() || 0;
+            return dir === 'desc' ? timeB - timeA : timeA - timeB;
+          });
+        }
+      }
     }
 
     const limit = args.take || 50;

@@ -119,10 +119,11 @@ async def list_matches(
     status: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     page: int = Query(1, ge=1),
+    order: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Get matches with optional filtering."""
-    return await get_matches(db, sport, status, limit, page)
+    return await get_matches(db, sport, status, limit, page, order)
 
 
 @router.get("/matches/{slug}")
@@ -162,7 +163,7 @@ async def get_finished_matches(
     db: AsyncSession = Depends(get_db),
 ):
     """Get finished/recently completed matches."""
-    return await get_matches(db, sport=sport, status="finished", limit=limit)
+    return await get_matches(db, sport=sport, status="finished", limit=limit, order="desc")
 
 
 # ==================== Standings ====================

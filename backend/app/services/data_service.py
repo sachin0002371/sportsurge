@@ -651,9 +651,10 @@ async def get_matches(
     status: str = None,
     limit: int = 50,
     page: int = 1,
+    order: str = None,
 ) -> dict:
     """Get matches with filtering and pagination (in-memory cached)."""
-    cache_key = f"matches::{sport_slug}::{status}::{limit}::{page}"
+    cache_key = f"matches::{sport_slug}::{status}::{limit}::{page}::{order}"
     cached = _get_cache(cache_key, ttl=15)
     if cached:
         return cached
@@ -673,7 +674,13 @@ async def get_matches(
     if status:
         stmt = stmt.where(Match.status == status)
 
-    stmt = stmt.order_by(Match.match_date.asc()).offset((page - 1) * limit).limit(limit)
+    order_dir = (order or "").lower()
+    if order_dir == "desc" or (not order and status == "finished"):
+        stmt = stmt.order_by(Match.match_date.desc())
+    else:
+        stmt = stmt.order_by(Match.match_date.asc())
+
+    stmt = stmt.offset((page - 1) * limit).limit(limit)
     matches = (await db.execute(stmt)).scalars().all()
 
     result = {
