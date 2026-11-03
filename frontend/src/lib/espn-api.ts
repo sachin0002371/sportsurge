@@ -97,7 +97,7 @@ export async function fetchScoreboard(sportSlug: string): Promise<ESPNScoreboard
           'User-Agent': 'SportSurge/1.0',
           'Accept': 'application/json',
         },
-        next: { revalidate: 60 },
+        cache: 'no-store',
       });
 
       if (response.ok) {
@@ -134,6 +134,7 @@ export async function fetchESPNNews(sportSlug: string) {
     const url = `http://site.api.espn.com/apis/site/v2/sports/${mapping.sport}/${l}/news`;
     try {
       const response = await fetch(url, {
+        cache: 'no-store',
         headers: {
           'User-Agent': 'SportSurge/1.0',
           'Accept': 'application/json',
