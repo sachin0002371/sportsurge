@@ -14,6 +14,22 @@ import AdPlacement from '@/components/AdPlacement';
 
 import { cache } from 'react';
 
+// DMCA Takedown List
+const BLOCKED_MATCH_SLUGS = new Set([
+  'oklahoma-city-thunder-vs-atlanta-hawks-2026-11-19',
+  'brooklyn-nets-vs-chicago-bulls-2026-11-19',
+  'cleveland-cavaliers-vs-memphis-grizzlies-2026-11-19',
+  'dallas-mavericks-vs-golden-state-warriors-2026-11-19',
+  'denver-nuggets-vs-boston-celtics-2026-11-19',
+  'new-orleans-pelicans-vs-detroit-pistons-2026-11-19',
+  'indiana-pacers-vs-houston-rockets-2026-11-19',
+  'los-angeles-lakers-vs-utah-jazz-2026-11-19',
+  'miami-heat-vs-milwaukee-bucks-2026-11-19',
+  'orlando-magic-vs-philadelphia-76ers-2026-11-19',
+  'sacramento-kings-vs-phoenix-suns-2026-11-19',
+  'toronto-raptors-vs-washington-wizards-2026-11-19',
+]);
+
 interface MatchPageProps {
   params: Promise<{ sport: string; slug: string }>;
 }
@@ -21,6 +37,7 @@ interface MatchPageProps {
 export const revalidate = 86400; // 24 hour Edge ISR Cache (matches do not change repeatedly)
 
 const getMatch = cache(async (slug: string) => {
+  if (BLOCKED_MATCH_SLUGS.has(slug)) return null;
   try {
     return await db.match.findFirst({
       where: { slug },
@@ -38,10 +55,12 @@ export async function generateStaticParams() {
       select: { slug: true, sport: { select: { slug: true } } },
       take: 50,
     });
-    return matches.map((match) => ({
-      sport: match.sport.slug,
-      slug: match.slug,
-    }));
+    return matches
+      .filter((match) => !BLOCKED_MATCH_SLUGS.has(match.slug))
+      .map((match) => ({
+        sport: match.sport.slug,
+        slug: match.slug,
+      }));
   } catch (error) {
     console.warn('generateStaticParams match error:', error);
     return [];
@@ -50,6 +69,9 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: MatchPageProps) {
   const { slug } = await params;
+  if (BLOCKED_MATCH_SLUGS.has(slug)) {
+    return { title: 'Match Not Found - Sportsurge Official' };
+  }
   try {
     const match = await getMatch(slug);
 
@@ -122,6 +144,9 @@ function generateMatchSEO(
 
 export default async function MatchPage({ params }: MatchPageProps) {
   const { sport: sportSlug, slug } = await params;
+  if (BLOCKED_MATCH_SLUGS.has(slug)) {
+    notFound();
+  }
   const match = await getMatch(slug);
   let relatedArticles: any[] = [];
   let relatedMatches: any[] = [];

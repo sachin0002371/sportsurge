@@ -353,6 +353,21 @@ const articleDb = {
   }
 };
 
+const BLOCKED_MATCH_SLUGS = new Set([
+  'oklahoma-city-thunder-vs-atlanta-hawks-2026-11-19',
+  'brooklyn-nets-vs-chicago-bulls-2026-11-19',
+  'cleveland-cavaliers-vs-memphis-grizzlies-2026-11-19',
+  'dallas-mavericks-vs-golden-state-warriors-2026-11-19',
+  'denver-nuggets-vs-boston-celtics-2026-11-19',
+  'new-orleans-pelicans-vs-detroit-pistons-2026-11-19',
+  'indiana-pacers-vs-houston-rockets-2026-11-19',
+  'los-angeles-lakers-vs-utah-jazz-2026-11-19',
+  'miami-heat-vs-milwaukee-bucks-2026-11-19',
+  'orlando-magic-vs-philadelphia-76ers-2026-11-19',
+  'sacramento-kings-vs-phoenix-suns-2026-11-19',
+  'toronto-raptors-vs-washington-wizards-2026-11-19',
+]);
+
 const matchDb = {
   async getAllCached() {
     const [liveData, upcomingData, finishedData] = await Promise.all([
@@ -369,7 +384,7 @@ const matchDb = {
 
     const map = new Map();
     for (const m of allMatches) {
-      if (m && m.id && !map.has(m.id)) {
+      if (m && m.id && !BLOCKED_MATCH_SLUGS.has(m.slug) && !map.has(m.id)) {
         map.set(m.id, mapMatch(m));
       }
     }
@@ -430,6 +445,9 @@ const matchDb = {
   },
 
   async findUnique(args: any = {}) {
+    if (args.where?.slug && BLOCKED_MATCH_SLUGS.has(args.where.slug)) {
+      return null;
+    }
     const matches = await this.getAllCached();
     if (args.where?.id) {
       const found = matches.find((m: any) => m.id === args.where.id);

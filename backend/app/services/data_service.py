@@ -645,6 +645,23 @@ def invalidate_api_cache():
     _API_CACHE.clear()
 
 
+# DMCA Takedown List
+BLOCKED_MATCH_SLUGS = {
+    "oklahoma-city-thunder-vs-atlanta-hawks-2026-11-19",
+    "brooklyn-nets-vs-chicago-bulls-2026-11-19",
+    "cleveland-cavaliers-vs-memphis-grizzlies-2026-11-19",
+    "dallas-mavericks-vs-golden-state-warriors-2026-11-19",
+    "denver-nuggets-vs-boston-celtics-2026-11-19",
+    "new-orleans-pelicans-vs-detroit-pistons-2026-11-19",
+    "indiana-pacers-vs-houston-rockets-2026-11-19",
+    "los-angeles-lakers-vs-utah-jazz-2026-11-19",
+    "miami-heat-vs-milwaukee-bucks-2026-11-19",
+    "orlando-magic-vs-philadelphia-76ers-2026-11-19",
+    "sacramento-kings-vs-phoenix-suns-2026-11-19",
+    "toronto-raptors-vs-washington-wizards-2026-11-19",
+}
+
+
 async def get_matches(
     db: AsyncSession,
     sport_slug: str = None,
@@ -674,6 +691,9 @@ async def get_matches(
     if status:
         stmt = stmt.where(Match.status == status)
 
+    if BLOCKED_MATCH_SLUGS:
+        stmt = stmt.where(~Match.slug.in_(BLOCKED_MATCH_SLUGS))
+
     order_dir = (order or "").lower()
     if order_dir == "desc" or (not order and status == "finished"):
         stmt = stmt.order_by(Match.match_date.desc())
@@ -696,6 +716,9 @@ async def get_matches(
 
 async def get_match_by_slug(db: AsyncSession, slug: str) -> Optional[dict]:
     """Get a single match by slug (in-memory cached)."""
+    if slug in BLOCKED_MATCH_SLUGS:
+        return None
+
     cache_key = f"match::{slug}"
     cached = _get_cache(cache_key, ttl=15)
     if cached:

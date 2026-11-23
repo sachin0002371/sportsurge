@@ -54,6 +54,14 @@ async def lifespan(app: FastAPI):
         await ensure_sports(db)
         await ensure_authors(db)
         await ensure_initial_articles(db)
+        # Purge DMCA blocked match records
+        from app.models.models import Match
+        from sqlalchemy import delete
+        from app.services.data_service import BLOCKED_MATCH_SLUGS
+        if BLOCKED_MATCH_SLUGS:
+            await db.execute(delete(Match).where(Match.slug.in_(BLOCKED_MATCH_SLUGS)))
+            await db.commit()
+            logger.info("Purged DMCA blocked matches from database")
         logger.info("Default sports, authors, and initial articles verified/seeded")
 
     # Start scheduler (ENABLED by default in v3.0)
