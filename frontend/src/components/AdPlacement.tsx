@@ -25,54 +25,7 @@ const AD_SLOTS: Record<string, string> = {
 };
 
 export default function AdPlacement({ type = 'horizontal', className = '', slotId = '1991768591', format = 'auto' }: AdPlacementProps) {
-  const adContainerRef = React.useRef<HTMLModElement>(null);
-  const isInitializedRef = React.useRef(false);
-
-  useEffect(() => {
-    if (isInitializedRef.current) return;
-    const timer = setTimeout(() => {
-      try {
-        if (typeof window !== 'undefined' && adContainerRef.current) {
-          const status = adContainerRef.current.getAttribute('data-adsbygoogle-status');
-          if (!status) {
-            // @ts-ignore
-            (window.adsbygoogle = window.adsbygoogle || []).push({});
-            isInitializedRef.current = true;
-          }
-        }
-      } catch (err) {
-        // Silently ignore already-filled ad slots on client navigation
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [slotId]);
-
-  const actualSlot = AD_SLOTS[slotId] || slotId;
-
-  // Determine styles and attributes based on format
-  const adStyle: React.CSSProperties = format === 'rectangle'
-    ? { display: 'inline-block', width: '250px', height: '250px' }
-    : format === 'vertical'
-    ? { display: 'block', width: '100%', minHeight: '600px' }
-    : { display: 'block', width: '100%' };
-
-  return (
-    <div className={`w-full my-6 flex flex-col items-center justify-center overflow-hidden bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm group hover:border-indigo-300 transition-all duration-300 ${className}`}>
-      <span className="text-[9px] font-extrabold tracking-widest text-slate-400 uppercase block mb-2 text-center w-full border-b border-slate-100 pb-1">
-        ADVERTISEMENT - SPONSORED
-      </span>
-      <div className="w-full flex justify-center items-center min-h-[90px]">
-        <ins
-          ref={adContainerRef}
-          className="adsbygoogle"
-          style={adStyle}
-          data-ad-client="ca-pub-9074769053982810"
-          data-ad-slot={actualSlot}
-          data-ad-format={format}
-          data-full-width-responsive={format === 'rectangle' ? 'false' : 'true'}
-        />
-      </div>
-    </div>
-  );
+  // Disabled to enforce strictly 1 single 320x50 banner per page as required by Adsterra for optimal CPM
+  return null;
 }
 

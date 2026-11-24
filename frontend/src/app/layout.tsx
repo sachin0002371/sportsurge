@@ -8,6 +8,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import SiteDisclaimer from "@/components/SiteDisclaimer";
 import NavigationProgress from "@/components/NavigationProgress";
+import AdsterraBanner from "@/components/AdsterraBanner";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -79,10 +80,19 @@ export default function RootLayout({
         <div className="min-h-screen flex flex-col">
           <SiteDisclaimer />
           <Header />
+          <AdsterraBanner />
           <main className="flex-1">{children}</main>
           <Footer />
         </div>
         <Toaster />
+
+        {/* Adsterra Social Bar */}
+        <Script
+          id="adsterra-social-bar"
+          src="https://bicea.org/14/d9cf6ee319b723e68ae5a497e6f0684e"
+          strategy="afterInteractive"
+          data-cfasync="false"
+        />
       </body>
     </html>
   );
