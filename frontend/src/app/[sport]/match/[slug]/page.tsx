@@ -16,6 +16,7 @@ import { cache } from 'react';
 
 // DMCA Takedown List
 const BLOCKED_MATCH_SLUGS = new Set([
+  // Report ID 42a0fc1492311f62
   'oklahoma-city-thunder-vs-atlanta-hawks-2026-11-19',
   'brooklyn-nets-vs-chicago-bulls-2026-11-19',
   'cleveland-cavaliers-vs-memphis-grizzlies-2026-11-19',
@@ -28,6 +29,30 @@ const BLOCKED_MATCH_SLUGS = new Set([
   'orlando-magic-vs-philadelphia-76ers-2026-11-19',
   'sacramento-kings-vs-phoenix-suns-2026-11-19',
   'toronto-raptors-vs-washington-wizards-2026-11-19',
+  // Report ID fa16595e4505ff3d
+  'chicago-bulls-vs-denver-nuggets-2026-11-23',
+  'dallas-mavericks-vs-atlanta-hawks-2026-10-17',
+  'dallas-mavericks-vs-la-clippers-2026-11-22',
+  'denver-nuggets-vs-houston-rockets-2026-11-21',
+  'houston-rockets-vs-denver-nuggets-2026-11-10',
+  'houston-rockets-vs-dallas-mavericks-2026-10-22',
+  'indiana-pacers-vs-oklahoma-city-thunder-2026-11-24',
+  'oklahoma-city-thunder-vs-indiana-pacers-2026-10-14',
+  'milwaukee-bucks-vs-atlanta-hawks-2026-11-16',
+  'milwaukee-bucks-vs-portland-trail-blazers-2026-11-20',
+  'chicago-bulls-vs-minnesota-timberwolves-2026-10-17',
+  'minnesota-timberwolves-vs-chicago-bulls-2026-11-15',
+  'oklahoma-city-thunder-vs-new-orleans-pelicans-2026-11-21',
+  'chicago-bulls-vs-philadelphia-76ers-2026-11-08',
+  'phoenix-suns-vs-golden-state-warriors-2026-10-25',
+  'phoenix-suns-vs-san-antonio-spurs-2026-11-10',
+  'phoenix-suns-vs-utah-jazz-2026-10-17',
+  'portland-trail-blazers-vs-oklahoma-city-thunder-2026-11-11',
+  'sacramento-kings-vs-oklahoma-city-thunder-2026-11-16',
+  'san-antonio-spurs-vs-sacramento-kings-2026-10-17',
+  'san-antonio-spurs-vs-oklahoma-city-thunder-2026-05-23',
+  'toronto-raptors-vs-milwaukee-bucks-2026-11-24',
+  'washington-wizards-vs-milwaukee-bucks-2026-10-21',
 ]);
 
 interface MatchPageProps {
